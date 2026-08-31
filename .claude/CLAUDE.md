@@ -72,6 +72,72 @@ This project handles key material. The following hold without exception:
 
 ---
 
+## Testing Conventions
+
+**End-to-end against a real build is the default. Mocking is the exception and needs
+a reason.**
+
+Nearly every claim this tool makes is a claim about the artifact, not about a
+function: that a header leaks nothing, that the static binary has no runtime
+dependencies, that `gpg` can still read a blob, that a bare machine can bootstrap from
+a store. A mock cannot confirm any of those, because the mock is not the thing making
+the claim. A test suite that passes entirely against fakes tells us the code is
+self-consistent, which is not what we need to know.
+
+### The shape of an e2e test
+
+Every e2e test builds the tool fresh and drives it as a subprocess:
+
+1. **Throwaway build.** Build the real binary — `CGO_ENABLED=0`, same flags as
+   `build-static` — into a temporary directory. Do not call internal packages
+   directly; invoke the binary. Testing the artifact is the entire point.
+2. **Throwaway store.** A fresh store under `t.TempDir()`, initialized by the tool
+   itself. Never a fixture store checked into the repository.
+3. **Throwaway credentials.** Generate the recovery passphrase per run from
+   `crypto/rand`. No credential-shaped constant is ever committed, even a fake one.
+4. **Throwaway environment.** Set `HOME` and the `XDG_*` variables to temporary
+   directories so the test cannot reach the developer's real store, keyring, or
+   wallet.
+5. **Assert on observable output**: exit codes, bytes on disk, stdout. Not on internal
+   state.
+
+### Hard guards
+
+- A test helper MUST refuse to run when `HOME` still points at the real home
+  directory. This is a `t.Fatal`, not a skip — a test that silently writes to a
+  developer's actual store is worse than one that fails.
+- KWallet tests use a dedicated wallet named for the test run and remove it
+  afterwards. They never read or write the user's real wallet entries.
+- `gpg` interop tests use a throwaway `GNUPGHOME` under `t.TempDir()`.
+- The bootstrap test runs in a container with no `angou`, no keyring, and no Go
+  toolchain, because "works on an unconfigured machine" cannot be tested on a
+  configured one.
+
+### Unit tests
+
+Unit tests are welcome where a piece of logic has real edge cases worth pinning —
+container header parsing, path normalization, HMAC addressing, retention pruning.
+
+Keep them simple. Table-driven, plain `testify` assertions, no fixture frameworks, no
+elaborate builders, no mock hierarchies. If a unit test needs significant scaffolding
+to exist, that is a signal the behavior belongs in an e2e test instead.
+
+Do not chase coverage. Coverage is for finding untested critical paths, never a
+number to maximize.
+
+### Running
+
+```bash
+make test           # unit tests, fast, no build required
+make e2e            # builds the binary, runs against throwaway stores
+make e2e-container  # the bare-machine bootstrap test
+```
+
+`make e2e` is required before any release commit. Unit tests alone do not satisfy the
+Phase 3 validation gate for this project.
+
+---
+
 ## House Conventions (ag-scripts style)
 
 This project follows the `ag-scripts` sub-project conventions, adapted for a

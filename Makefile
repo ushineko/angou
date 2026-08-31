@@ -61,8 +61,16 @@ shellcheck: ## Lint the plaintext bootstrap entrypoint (spec 001 R5.6)
 	@shellcheck bootstrap/bootstrap.sh
 
 .PHONY: test
-test: ## Run all tests with the race detector
+test: ## Run unit tests with the race detector (fast, no build)
 	@go test -race ./...
+
+.PHONY: e2e
+e2e: build-static ## Build the real binary and run end-to-end tests against throwaway stores
+	@ANGOU_E2E_BIN=$(CURDIR)/angou go test -race -tags e2e -count=1 -v ./tests/e2e/...
+
+.PHONY: e2e-container
+e2e-container: build-all ## Bootstrap test on a bare machine (no angou, no gpg, no Go)
+	@./tests/e2e/container/run.sh
 
 .PHONY: coverage
 coverage: ## Run all tests and open a coverage report in the default browser

@@ -270,6 +270,39 @@ R7.3 Builds use `-ldflags='-w -s' -trimpath`. Combined with a pinned toolchain t
 yields near-reproducible binaries, which is what makes the R5.3 metadata record
 meaningful.
 
+### R8 — Testing
+
+R8.1 Verification is end-to-end by default. Each e2e test builds the binary with the
+`build-static` flags into a temporary directory and drives it as a subprocess. Tests
+MUST NOT reach into internal packages to exercise behavior that a user reaches through
+the binary.
+
+R8.2 The rationale is specific to this tool rather than general preference: the
+majority of the claims in this spec are properties of the artifact, not of a function.
+R1.3 (the header leaks nothing), R1.5 (`gpg` can read the payload), R6.2 (the static
+binary has no prerequisites), and R5.6 (a bare machine bootstraps) are each unfalsifiable
+against a substitute, because the substitute is not the thing that carries the property.
+
+R8.3 Every e2e run uses a throwaway store created by the tool, a recovery passphrase
+generated per run from `crypto/rand`, and `HOME` plus `XDG_*` redirected to temporary
+directories. No fixture store and no credential-shaped constant is committed.
+
+R8.4 A test helper MUST fail — not skip — when `HOME` still refers to the real home
+directory, so a suite cannot silently operate on a developer's own store, keyring, or
+wallet.
+
+R8.5 Tests requiring a real downstream system use a disposable instance of it: a
+dedicated, test-named KWallet entry removed afterwards; a throwaway `GNUPGHOME`; a
+container with no `angou`, no keyring, and no Go toolchain for the bootstrap path.
+
+R8.6 Unit tests are permitted for logic with genuine edge cases — header parsing, path
+normalization, HMAC addressing, retention pruning — and are kept simple: table-driven,
+plain assertions, no fixture frameworks or mock hierarchies. Scaffolding-heavy unit
+tests are a signal the behavior belongs in an e2e test.
+
+R8.7 `make e2e` is required before a release commit. Unit tests alone do not satisfy
+the Phase 3 validation gate.
+
 ---
 
 ## Acceptance Criteria
@@ -352,6 +385,16 @@ meaningful.
 - [ ] `make build-static` produces a binary that `ldd` reports as not dynamically
       linked, and which runs in a `scratch`-based container.
 - [ ] `make help` lists every target.
+
+### Testing discipline
+
+- [ ] The e2e suite runs against a binary it built itself, not against internal
+      packages, and fails if that binary is absent.
+- [ ] The suite fails with a clear message when `HOME` points at the real home
+      directory (R8.4).
+- [ ] Two consecutive e2e runs use different recovery passphrases.
+- [ ] After a full run, no file under the real `~/.local/share/angou/` and no KWallet
+      entry outside the test-named one has been created or modified.
 
 ### Security
 

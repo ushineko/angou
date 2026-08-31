@@ -190,15 +190,25 @@ angou/
 ## Testing
 
 ```bash
-make test        # go test -race
-make lint        # pinned golangci-lint, checksum-verified when installed
-make shellcheck  # the plaintext bootstrap installer
+make test           # unit tests, fast
+make e2e            # builds the real binary, runs it against throwaway stores
+make e2e-container  # bootstrap onto a machine with nothing installed
+make lint           # pinned golangci-lint, checksum-verified when installed
+make shellcheck     # the plaintext bootstrap installer
 ```
 
-Tests run against temporary stores and keys, so they touch neither your real store nor
-your wallet. The tests that must talk to a live KDE wallet, to `gpg`, or to a bare
-machine are marked and run separately, because mocking them would test nothing worth
-testing.
+Testing here is end-to-end by default and barely mocked at all. Most of what this
+program claims is a claim about the built binary rather than about a function inside
+it — that a blob header gives nothing away, that the binary needs nothing installed,
+that `gpg` can still read what it wrote, that a bare machine can set itself up from a
+store. None of that can be confirmed against a stand-in, so it is confirmed against
+the real thing.
+
+Each run builds a throwaway copy of the tool, points it at a throwaway store with a
+throwaway password, and redirects `HOME` somewhere temporary. Your own store, keys and
+wallet are never touched, and the suite refuses to run rather than fall back to them.
+The bootstrap test runs in a container with nothing installed, because "works on a new
+machine" cannot honestly be tested on this one.
 
 ## Safety
 
