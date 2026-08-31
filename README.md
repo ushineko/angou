@@ -1,54 +1,227 @@
 # angou
 
-`angou` (暗号 — cipher, encryption) converts sensitive files to and from encrypted
-blobs using OpenPGP, and keeps them in a portable store that can be synced through
-Dropbox, `rsync`, or removable media.
+Encrypts sensitive files into a portable store you can keep in Dropbox, on a USB
+stick, or anywhere else you can copy a directory. `angou` (暗号 — cipher) wraps each
+file in an OpenPGP blob whose filename and metadata give nothing away, and the store
+carries everything needed to rebuild itself on a machine that has never seen it.
 
-**Status**: design complete, implementation not started. See
-[`specs/001-angou-format-keying-and-store.md`](specs/001-angou-format-keying-and-store.md).
+It is built for small, high-value files: `.secrets.env`, SSH private keys, and text
+files with passwords in them.
 
----
+*Nothing about your keys or your data lives in this repository. The store is yours and
+stays where you put it.*
 
-## What it is for
+**Version**: 0.1.0-dev
 
-Small, high-value files: `.secrets.env`, SSH private keys, and text files holding
-passwords or other sensitive data.
+> **Status**: the design is complete and this document describes it in the present
+> tense. No code is written yet. Read
+> [`specs/001-angou-format-keying-and-store.md`](specs/001-angou-format-keying-and-store.md)
+> for the design of record, including the alternatives that were rejected and why.
 
-## Design summary
+## Table of Contents
 
-- **Container** — a text container with an armored (base64) OpenPGP payload by
-  default, `--binary` for large inputs. The plaintext header carries only the format
-  magic, version, payload encoding, and recipient fingerprint. The original filename
-  and all other metadata live *inside* the encrypted payload, so a directory listing
-  leaks nothing about what a blob holds.
-- **Recoverable without this tool** — payloads are standard OpenPGP messages, so
-  `gpg --decrypt` retrieves the content if `angou` is ever unavailable.
-- **Two passphrases** — one memorized recovery passphrase guards the exported key
-  bundle. The per-machine unlock passphrase is randomly generated, never displayed,
-  and held only in the platform keyring, which makes the local key disposable state
-  that is re-derived by bootstrapping again.
-- **Store** — a plain directory of opaque blobs named by
-  `HMAC-SHA256(K_name, path)`, so names are stable enough to update in place but not
-  guessable by dictionary attack. An encrypted index makes listing cheap and is a
-  rebuildable cache, never authoritative.
-- **Bootstrap anywhere** — the store carries signed, encrypted binaries for each
-  supported platform alongside a plaintext `bootstrap.sh` entrypoint, so an
-  unconfigured machine reaches a working install from the store and the recovery
-  passphrase alone.
+- [What it does](#what-it-does)
+- [What a stolen store gives away](#what-a-stolen-store-gives-away)
+- [Two passwords, two jobs](#two-passwords-two-jobs)
+- [Bootstrapping a new machine](#bootstrapping-a-new-machine)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage (CLI)](#usage-cli)
+- [Usage (GUI)](#usage-gui)
+- [Project layout](#project-layout)
+- [Testing](#testing)
+- [Safety](#safety)
+- [Changelog](#changelog)
 
-## Building
+## What it does
+
+**Encrypts a file into a blob.** The blob is text by default — base64, so it survives
+being pasted into a chat window, opened in an editor, or dragged through a sync
+service that rewrites line endings. Large files can be stored as raw binary instead.
+The choice is written into the blob, so it is never guessed at when reading.
+
+**Keeps the blobs in a plain directory.** No database. Copy it, `rsync` it, put it in
+Dropbox, carry it on a stick. Whatever you can do to a folder, you can do to the store.
+
+**Hides what it is holding.** A blob's filename is a keyed hash of the path you gave
+it, so the store is a directory of opaque names. The original filename lives inside
+the encryption, not beside it.
+
+**Stays readable without this tool.** Blobs are ordinary OpenPGP messages. If `angou`
+is ever missing, unbuildable, or you are on a machine that cannot run it, `gpg
+--decrypt` gets your data back. This is deliberate and will not be traded away for a
+cleverer format.
+
+**Carries its own installer.** The store holds a signed copy of the program for each
+platform, so a new machine needs the store and one password — not a Go toolchain, and
+not this repository.
+
+## What a stolen store gives away
+
+Worth being precise about, since the point of the store is that it lives somewhere you
+do not control.
+
+Someone holding your store, without your passwords, learns **how many** secrets you
+have, roughly **how big** each one is, and **when** you last touched it. That is all.
+They do not learn the filenames, the contents, or the kinds of files involved.
+
+They also cannot make you run something. The binaries in the store are encrypted and
+signed, so tampering with them is caught. The one exception is `bootstrap.sh`, which is
+plaintext by necessity — something has to run before the program exists. Its hash is
+recorded inside the encrypted store, so `angou verify-bootstrap` from any machine you
+have already set up will tell you if it changed. The first machine to run a modified
+copy is not protected, and no plaintext installer anywhere can protect it.
+
+## Two passwords, two jobs
+
+**Your recovery password** is the one you memorize. It is the only thing standing
+between a copy of your store and everything in it, so make it long and keep it in a
+password manager or on paper. You type it when you set up a new machine, and almost
+never otherwise.
+
+**The unlock password is not yours.** Each machine generates its own — 32 random bytes,
+never shown to you, never written down, kept in your KDE wallet and nowhere else. You
+will never type it and there is nothing to remember.
+
+The result is that a machine holds no secret worth stealing on its own. Wipe your
+wallet, reinstall your OS, lose the laptop: nothing is lost, because a machine's setup
+is rebuilt from the store rather than recovered. Nothing derives it from your hostname
+or hardware either, so imaging the disk and reading this source gets an attacker
+nowhere.
+
+On a machine with no KDE wallet — a server, or a Mac for now — nothing is generated and
+the key stays under your recovery password instead.
+
+## Bootstrapping a new machine
+
+Copy the store over, then:
+
+```bash
+cd /path/to/store
+./bootstrap.sh
+```
+
+It works out your OS and CPU, checks you have `gpg` and tells you how to install it if
+not, asks for your recovery password, checks the signature on the program before
+installing it, and hands over to `angou bootstrap` to finish. Nothing is downloaded;
+everything comes out of the store you just copied.
+
+`gpg` is needed for exactly this one step, because the program that would otherwise
+decrypt itself is the thing being installed. On Arch it is already there — `pacman`
+depends on it. Nothing after this point uses it.
+
+## Requirements
+
+- **Linux** (developed on CachyOS/Arch). macOS is a later target.
+- **KDE Plasma** for password caching. Without it you will be asked for your recovery
+  password rather than having it cached.
+- **`gpg`** for the first-run bootstrap only, and not afterwards.
+- **Go 1.25+** to build from source. You do not need it to install from a store.
+
+The program itself has no runtime dependencies. It is a static binary and does not
+call out to `gpg`, `gpg-agent`, or `kwallet-query`.
+
+## Installation
+
+From a store, use `bootstrap.sh` above. From this repository:
+
+```bash
+git clone git@github.com:ushineko/angou.git
+cd angou
+./install.sh
+```
+
+Installs the `angou` command, the desktop entry, and the file-type rules that let KDE
+recognize a `.angou` blob. Remove it all with `./uninstall.sh`.
+
+## Usage (CLI)
+
+```bash
+angou init ~/Dropbox/angou        # create a store and its keypair
+angou enc .secrets.env            # encrypt into the store
+angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519
+angou dec work/ssh/id_ed25519     # decrypt back out
+angou get .secrets.env            # write the plaintext to stdout
+
+angou ls                          # what is in the store
+angou ls work/                    # one part of it
+angou mv old/path new/path        # rename without re-encrypting
+angou rm work/ssh/id_ed25519
+
+angou reindex                     # rebuild the listing from the blobs
+angou verify-bootstrap            # has the plaintext installer been altered?
+
+angou rekey --local               # new machine password; changes nothing else
+angou rekey --identity            # NEW KEYPAIR, re-encrypts everything
+
+angou release --dist dist/        # put newly built binaries into the store
+angou agent                       # session cache; started on demand
+```
+
+`enc` leaves your original file alone. `--shred` overwrites it afterwards, but see
+[Safety](#safety) before you rely on that word.
+
+## Usage (GUI)
+
+`angou-gui` browses the store as a tree of the names you gave your files, rather than
+the hashed names on disk. Double-clicking a blob shows it inline when it is text, and
+offers to decrypt it beside the original when it is not. It is a separate program from
+the CLI and is never needed to set a machine up.
+
+## Project layout
 
 ```
-make help          # list targets
-make build-static  # the CGO-free CLI; this is the bootstrap artifact
-make lint          # pinned golangci-lint, checksum-verified on install
-make test          # go test -race
+angou/
+├── cmd/angou/              the command line
+├── cmd/angou-gui/          the desktop browser
+├── lib/container/          the blob format — readable by other tools
+├── internal/store/         blob naming, the index, rebuilding it
+├── internal/envelope/      the metadata sealed inside each blob
+├── internal/keyring/       keys, and the KDE wallet
+├── internal/agent/         the session cache
+├── packaging/              desktop file-type rules, icon, magic
+├── config/                 pinned linter configuration
+├── specs/                  design specs
+├── docs/                   format reference and runbooks
+├── tests/                  test suite
+└── validation-reports/     release validation records
 ```
 
-## Security
+## Testing
 
-No key material, passphrase, or store content belongs in this repository. All state
-lives in `~/.local/share/angou/` and the user-designated store directory.
+```bash
+make test        # go test -race
+make lint        # pinned golangci-lint, checksum-verified when installed
+make shellcheck  # the plaintext bootstrap installer
+```
+
+Tests run against temporary stores and keys, so they touch neither your real store nor
+your wallet. The tests that must talk to a live KDE wallet, to `gpg`, or to a bare
+machine are marked and run separately, because mocking them would test nothing worth
+testing.
+
+## Safety
+
+- **Your recovery password cannot be recovered.** Lose it and the store is lost. There
+  is no reset, no backdoor, and no support channel. Write it down somewhere real.
+- **`--shred` is not a secure erase.** On Btrfs, on any copy-on-write filesystem, and
+  on any SSD, overwriting a file does not reliably destroy the old copy. The default is
+  to leave your original in place precisely so this is your decision and not a false
+  promise.
+- **`rekey --identity` rewrites the whole store.** It is the right response to a
+  compromised machine and the wrong thing to run casually. It works on a copy and
+  commits at the end, so an interruption leaves the original intact.
+- **A conflicted copy of the index is harmless.** The blobs are the truth and the
+  listing is rebuilt from them. If two machines write at once, run `angou reindex`.
+- **Don't put the store in this repository, or in any repository.** It is ignored here
+  as a backstop, not as a plan.
+
+## Changelog
+
+### 0.1.0-dev
+
+- Design complete: container format, key model, store layout, rotation, and bootstrap
+  (spec 001). No implementation yet.
 
 ## License
 

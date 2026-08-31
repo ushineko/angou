@@ -9,7 +9,7 @@ help: ## Show this help
 
 BINDIR=$(shell go env GOPATH)
 MODULE=github.com/ushineko/angou
-VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION?=$(shell cat VERSION 2>/dev/null || echo dev)
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS=-w -s -X $(MODULE)/lib/container.Version=$(VERSION) -X $(MODULE)/lib/container.Commit=$(COMMIT)
 

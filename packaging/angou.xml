@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Desktop file-type rules for angou blobs. Installed by install.sh to
+     ~/.local/share/mime/packages/. The magic string must match packaging/magic
+     and spec 001 R1.1. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-angou-blob">
+    <comment>angou encrypted blob</comment>
+    <glob pattern="*.angou"/>
+    <magic priority="60">
+      <match type="string" value="-----BEGIN ANGOU1 BLOB-----" offset="0"/>
+    </magic>
+    <icon name="angou"/>
+  </mime-type>
+</mime-info>

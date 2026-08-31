@@ -72,6 +72,74 @@ This project handles key material. The following hold without exception:
 
 ---
 
+## House Conventions (ag-scripts style)
+
+This project follows the `ag-scripts` sub-project conventions, adapted for a
+standalone repository.
+
+### Versioning
+
+- `VERSION` at the repository root is the single source of truth. The Makefile reads
+  it into the build via `-ldflags -X`, and `README.md` states the same string.
+- **ASK THE USER** to approve any version bump before making it. Propose a number;
+  do not choose one unilaterally.
+- After approval, update `VERSION` and `README.md` together and verify they match.
+  A release commit where they disagree is wrong.
+
+### README
+
+`README.md` follows the style of `ag-scripts/terrariabonker/README.md`:
+
+- Lowercase project name as the H1, then a plain-prose description of what the tool
+  does and who it is for. No feature-bullet openings, no marketing register.
+- A `**Version**:` line, then a Table of Contents.
+- Second person, present tense, plain words. Explain consequences rather than
+  listing capabilities — what is irreversible, what is session-only, what a given
+  setting actually costs the user.
+- State limitations where the user would otherwise assume a guarantee. The `--shred`
+  and `verify-bootstrap` entries are the reference cases: both describe what is *not*
+  promised, in the same breath as what is.
+- A `## Changelog` section with an entry per released version.
+
+### Installer and uninstaller
+
+- `install.sh` and `uninstall.sh` live at the repository root, are idempotent, and
+  support `--dry-run` where practical.
+- The uninstaller removes everything the installer placed and nothing else. It must
+  never remove keys or store data without the user asking; print the command instead.
+
+### Release procedure
+
+1. Tests, code-quality pass, and security review pass.
+2. Version bump approved by the user, applied to `VERSION` and `README.md`.
+3. Changelog entry added.
+4. Validation report written to `validation-reports/` (the `milestones-only` setting
+   above means release commits require one).
+5. Commit, then tag.
+
+### Tagging
+
+Tags are plain `vX.Y.Z` (annotated), not the `<subproject>/vX.Y.Z` form used in the
+`ag-scripts` monorepo — this repository holds one project, so the scoping prefix has
+nothing to disambiguate.
+
+```bash
+git tag -a "v1.0.0" -m "angou v1.0.0 — <summary>"
+git push origin "v1.0.0"
+```
+
+The tag must point at the commit that bumped `VERSION` and `README.md`; verify with
+`git show <tag> --stat`.
+
+### Format literals
+
+The container delimiters (`-----BEGIN ANGOU1 BLOB-----`) appear in three places:
+spec 001 R1.1, `packaging/magic`, and `packaging/angou.xml`. They are duplicated by
+necessity — `file(1)` and `shared-mime-info` cannot read a Go constant. Changing one
+means changing all three, plus `lib/container`.
+
+---
+
 ## Git Commit Rules
 
 **NEVER** add `Co-Authored-By` trailers or AI attribution footers to commit messages

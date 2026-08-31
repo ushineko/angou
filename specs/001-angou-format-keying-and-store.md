@@ -38,7 +38,12 @@ passphrase, or store content is ever committed to the repository. All state live
 
 ### R1 — Container format
 
-R1.1 Blobs use a text container: a plaintext header, a payload, and a terminator.
+R1.1 Blobs use a text container: a plaintext header, a payload, and a terminator. The
+opening delimiter is the literal line `-----BEGIN ANGOU1 BLOB-----` and the closing
+delimiter `-----END ANGOU1 BLOB-----`. The magic string `ANGOU1` carries the format
+version, so a future incompatible format is a different magic rather than a field a
+reader might overlook. These literals are duplicated in `packaging/` for `file(1)` and
+`shared-mime-info`; changing one requires changing all three.
 
 R1.2 The payload is ASCII-armored (base64) OpenPGP by default. A `--binary` mode
 emits raw OpenPGP packets for large inputs. The header declares which encoding is in

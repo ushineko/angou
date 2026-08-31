@@ -1,0 +1,3 @@
+# angou encrypted blob — see spec 001 R1.1. Appended to ~/.magic by install.sh.
+0	string	-----BEGIN\x20ANGOU1\x20BLOB-----	angou encrypted blob
+!:mime	application/x-angou-blob
