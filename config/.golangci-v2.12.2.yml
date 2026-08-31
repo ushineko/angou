@@ -1,0 +1,44 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - unconvert
+    - wrapcheck
+  settings:
+    gosec:
+      # G304 (file inclusion via variable) is inherent to a tool whose entire
+      # purpose is reading user-nominated paths; it is excluded rather than
+      # suppressed at hundreds of call sites.
+      excludes:
+        - G304
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - wrapcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

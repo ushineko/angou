@@ -1,0 +1,16 @@
+# Build artifacts
+/angou
+/angou-gui
+/dist/
+*.exe
+
+# Coverage
+coverage.out
+count.out
+
+# Encrypted blobs and store state must never enter the repository.
+# See specs/001 R2.6 and the project security policy.
+*.angou
+store.angou
+index.angou
+bootstrap/
