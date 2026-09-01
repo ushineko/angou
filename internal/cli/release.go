@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ushineko/angou/internal/pgpcrypto"
+	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
 	"github.com/ushineko/angou/lib/container"
@@ -100,6 +101,19 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 	signer, err := pgpcrypto.ParseArmoredPrivate(raw)
 	if err != nil {
 		return err
+	}
+	// A key exported from gpg is normally passphrase protected. Ask before doing
+	// any work, rather than failing at the first signature.
+	if signer.IsLocked() {
+		secret, err := prompt.Passphrase(global.passphraseFD,
+			"Passphrase for the release-signing key: ")
+		if err != nil {
+			return fmt.Errorf("%s is protected by a passphrase: %w", signingKeyPath, err)
+		}
+		defer prompt.Zero(secret)
+		if err := signer.Unlock(secret); err != nil {
+			return err
+		}
 	}
 	if release.Trusted() && signer.Fingerprint() != release.SigningKeyFingerprint {
 		return fmt.Errorf("this binary trusts release key %s, but %s holds %s.\n"+

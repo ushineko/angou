@@ -286,6 +286,21 @@ That puts a binary for each platform into the store, signs each one, and writes
 delete it from the machine. It is not the store's key and must never become it: anyone
 who has it can sign a binary that every future bootstrap will accept.
 
+The key `--new-signing-key` writes is not passphrase-protected, deliberately: moving it
+offline is the control, and a passphrase on a file left on the machine would suggest
+more protection than it gives. If you would rather have both, make the key with `gpg`
+instead and export it — angou takes a passphrase-protected key and asks for the
+passphrase before it does anything:
+
+```bash
+gpg --quick-generate-key 'angou release <you@example.com>' ed25519 sign never
+gpg --armor --export-secret-keys <fingerprint> > ~/angou-release.asc
+```
+
+Once a build has a fingerprint pinned into it, that build will only stash binaries
+signed by that key. It refuses others rather than producing a store it could not itself
+install from.
+
 On the new machine, with nothing installed but `gpg`:
 
 ```bash
@@ -521,7 +536,7 @@ and every acceptance criterion in that spec is met. The desktop browser is not s
   store — so an attacker who re-signs a binary and swaps the public key is still refused.
 - **The agent.** A session cache with a short lifetime, documented as excluding other
   users and explicitly not as a boundary against anything running as you.
-- **Testing.** 63 end-to-end tests that build the binary and drive it as a subprocess
+- **Testing.** 66 end-to-end tests that build the binary and drive it as a subprocess
   against throwaway stores, at the parameters users actually get, with a per-run
   passphrase and a redirected `HOME` the suite refuses to run without.
 

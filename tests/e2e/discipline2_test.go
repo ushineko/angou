@@ -147,8 +147,19 @@ func buildVersioned(t *testing.T, e *env, version string) string {
 	return out
 }
 
-// runBinary drives a specific binary rather than the one under test.
+// runBinary drives a specific binary rather than the one under test, and treats
+// a non-zero exit as fatal.
 func runBinary(t *testing.T, e *env, bin string, lines []string, args ...string) result {
+	t.Helper()
+	r := runBinaryAllowFailure(t, e, bin, lines, args...)
+	if r.code != 0 {
+		t.Fatalf("%s %v exited %d\n%s", bin, args, r.code, r.stderr)
+	}
+	return r
+}
+
+// runBinaryAllowFailure is runBinary for cases where the refusal is the point.
+func runBinaryAllowFailure(t *testing.T, e *env, bin string, lines []string, args ...string) result {
 	t.Helper()
 
 	r, w, err := os.Pipe()
@@ -175,9 +186,6 @@ func runBinary(t *testing.T, e *env, bin string, lines []string, args ...string)
 			t.Fatalf("running %s %v: %v\n%s", bin, args, err, stderr.String())
 		}
 		code = exitErr.ExitCode()
-	}
-	if code != 0 {
-		t.Fatalf("%s %v exited %d\n%s", bin, args, code, stderr.String())
 	}
 	return result{stdout: stdout.String(), stderr: stderr.String(), code: code}
 }

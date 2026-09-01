@@ -420,3 +420,142 @@ func TestCloneRefusesToFollowSymlinks(t *testing.T) {
 		}
 	}
 }
+
+// TestReleaseAcceptsAGPGExportedProtectedKey covers the way an operator will
+// actually produce a release-signing key.
+//
+// `gpg --export-secret-keys` yields a passphrase-protected key for any normally
+// created key, so this is the expected case rather than an exotic one. It used
+// to fail inside the first signing call with a library-level message about an
+// encrypted key, after release had already done work.
+func TestReleaseAcceptsAGPGExportedProtectedKey(t *testing.T) {
+	requireGPG(t)
+
+	e := newEnv(t)
+	e.initStore()
+
+	keyPassphrase := freshPassphrase(t)
+	keyPath := exportGPGSigningKey(t, e, keyPassphrase)
+
+	dist := filepath.Join(e.work, "dist")
+	mkdirAll(t, dist)
+	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
+
+	// Two passphrases: the store's, then the signing key's.
+	e.mustRunWithLines([]string{e.recovery, keyPassphrase},
+		"release", "--dist", dist, "--signing-key", keyPath)
+
+	// The signature it produced must satisfy the installer, which verifies with
+	// the system gpg rather than with angou's own code.
+	r := e.runInstaller(t, "")
+	require.Zero(t, r.code, "a binary signed with a gpg-exported key must install:\n%s", r.stderr)
+	require.FileExists(t, e.installedBinary())
+}
+
+// TestReleaseRejectsAWrongKeyPassphrase checks the failure is reported before
+// any work is done, and in terms of the key rather than of the library.
+func TestReleaseRejectsAWrongKeyPassphrase(t *testing.T) {
+	requireGPG(t)
+
+	e := newEnv(t)
+	e.initStore()
+	keyPath := exportGPGSigningKey(t, e, freshPassphrase(t))
+
+	dist := filepath.Join(e.work, "dist")
+	mkdirAll(t, dist)
+	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
+
+	r := e.runWithLines([]string{e.recovery, "not-the-key-passphrase"},
+		"release", "--dist", dist, "--signing-key", keyPath)
+	require.NotZero(t, r.code)
+	require.Contains(t, r.stderr, "does not open it")
+	require.NoFileExists(t, e.storePath("bootstrap", "angou-linux-amd64-0.1.0-dev"),
+		"nothing may be stashed when the key could not be unlocked")
+}
+
+// TestPinnedBuildRefusesAnotherKey covers R5.4.1 from the writing side. A build
+// that trusts one release key must not stash binaries signed by a different one,
+// because the store it produced could not be installed from by that same build.
+//
+// The suite's own binary carries no pinned fingerprint — development builds
+// deliberately trust nothing — so this builds one that does.
+func TestPinnedBuildRefusesAnotherKey(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+
+	// One key to pin, and a different one to try to sign with.
+	pinned := filepath.Join(e.work, "pinned.asc")
+	pinnedFingerprint := fieldAfter(t,
+		e.mustRunNoPassphrase("release", "--new-signing-key", pinned).stdout, "Fingerprint: ")
+	other := filepath.Join(e.work, "other.asc")
+	e.mustRunNoPassphrase("release", "--new-signing-key", other)
+
+	strict := buildPinned(t, e, pinnedFingerprint)
+	dist := filepath.Join(e.work, "dist")
+	mkdirAll(t, dist)
+	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
+
+	r := runBinaryAllowFailure(t, e, strict, []string{e.recovery},
+		"release", "--dist", dist, "--signing-key", other)
+	require.NotZero(t, r.code, "a pinned build must refuse to sign with another key")
+	require.Contains(t, r.stderr, pinnedFingerprint)
+	require.NoFileExists(t, e.storePath("bootstrap", "angou-linux-amd64-0.1.0-dev"))
+
+	// The key it does trust is accepted.
+	r = runBinaryAllowFailure(t, e, strict, []string{e.recovery},
+		"release", "--dist", dist, "--signing-key", pinned)
+	require.Zero(t, r.code, "the pinned key must be accepted:\n%s", r.stderr)
+}
+
+// exportGPGSigningKey creates a key with gpg and exports it the way an operator
+// would, which means passphrase protected.
+func exportGPGSigningKey(t *testing.T, e *env, passphrase string) string {
+	t.Helper()
+	gnupgHome := filepath.Join(e.work, "gnupg-signing")
+	mkdirAll(t, gnupgHome)
+	require.NoError(t, os.Chmod(gnupgHome, 0o700))
+
+	gpg := func(args ...string) []byte {
+		cmd := exec.Command("gpg", args...)
+		cmd.Env = append(os.Environ(), "GNUPGHOME="+gnupgHome)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("gpg %v: %v", args, err)
+		}
+		return out
+	}
+
+	gpg("--batch", "--quiet", "--passphrase", passphrase,
+		"--quick-generate-key", "angou release test <r@example.invalid>", "ed25519", "sign", "never")
+	colons := string(gpg("--list-secret-keys", "--with-colons"))
+
+	fingerprint := ""
+	for _, line := range strings.Split(colons, "\n") {
+		if strings.HasPrefix(line, "fpr:") {
+			fingerprint = strings.Split(line, ":")[9]
+			break
+		}
+	}
+	require.NotEmpty(t, fingerprint)
+
+	armored := gpg("--batch", "--quiet", "--pinentry-mode", "loopback",
+		"--passphrase", passphrase, "--armor", "--export-secret-keys", fingerprint)
+	path := filepath.Join(e.work, "gpg-signing.asc")
+	require.NoError(t, os.WriteFile(path, armored, 0o600))
+	return path
+}
+
+// buildPinned compiles the tool with a release fingerprint baked in.
+func buildPinned(t *testing.T, e *env, fingerprint string) string {
+	t.Helper()
+	out := filepath.Join(e.work, "angou-pinned")
+	cmd := exec.Command("go", "build",
+		"-ldflags", "-X github.com/ushineko/angou/internal/release.SigningKeyFingerprint="+fingerprint,
+		"-trimpath", "-o", out, "./cmd/angou")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building a pinned binary: %v\n%s", err, combined)
+	}
+	return out
+}

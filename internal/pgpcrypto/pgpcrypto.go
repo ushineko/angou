@@ -213,8 +213,17 @@ func (id *Identity) ExportPublic() ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// ErrKeyLocked reports a private key that is protected by a passphrase and has
+// not been unlocked yet.
+var ErrKeyLocked = errors.New("the signing key is protected by a passphrase")
+
 // ParseArmoredPrivate reads an armored private key, as exported by an offline
 // release-signing setup.
+//
+// A key exported with `gpg --export-secret-keys` is normally passphrase
+// protected, so that case is expected rather than exceptional. It is reported
+// here, at parse time, rather than being left to fail later inside the signing
+// call with a library-level message about an encrypted key.
 func ParseArmoredPrivate(raw []byte) (*Identity, error) {
 	list, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(raw))
 	if err != nil {
@@ -227,6 +236,41 @@ func ParseArmoredPrivate(raw []byte) (*Identity, error) {
 		return nil, errors.New("signing key file holds no private key")
 	}
 	return &Identity{entity: list[0]}, nil
+}
+
+// IsLocked reports whether the key still needs a passphrase before it can sign.
+func (id *Identity) IsLocked() bool {
+	if id.entity.PrivateKey != nil && id.entity.PrivateKey.Encrypted {
+		return true
+	}
+	for _, sub := range id.entity.Subkeys {
+		if sub.PrivateKey != nil && sub.PrivateKey.Encrypted {
+			return true
+		}
+	}
+	return false
+}
+
+// Unlock decrypts the private key material with a passphrase.
+//
+// The primary key and every subkey are unlocked together: which one signs is
+// decided by the library at signing time, and unlocking only the primary
+// produces the same late failure this exists to avoid.
+func (id *Identity) Unlock(passphrase []byte) error {
+	if id.entity.PrivateKey != nil && id.entity.PrivateKey.Encrypted {
+		if err := id.entity.PrivateKey.Decrypt(passphrase); err != nil {
+			return fmt.Errorf("%w: the passphrase does not open it", ErrKeyLocked)
+		}
+	}
+	for _, sub := range id.entity.Subkeys {
+		if sub.PrivateKey == nil || !sub.PrivateKey.Encrypted {
+			continue
+		}
+		if err := sub.PrivateKey.Decrypt(passphrase); err != nil {
+			return fmt.Errorf("%w: the passphrase does not open its signing subkey", ErrKeyLocked)
+		}
+	}
+	return nil
 }
 
 // ExportArmoredPrivate serializes the identity's private half, armored. It is
