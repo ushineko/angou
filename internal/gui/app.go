@@ -53,6 +53,12 @@ type ui struct {
 	frame   *fyne.Container // holds the status bar, so it can be redrawn
 	current int             // the selected section, so an operation can rebuild it
 
+	// busyCount is how many operations are running. A count rather than a flag:
+	// loading a section can start more than one, and the indicator must not go
+	// out when the first of them finishes.
+	busyCount int
+	busyWhat  string
+
 	// Loaded from the store on a goroutine, read and written on the UI thread.
 	//
 	// Each has a companion flag rather than being tested for emptiness. A
@@ -72,7 +78,7 @@ type ui struct {
 	candidates []ScanCandidate
 	scanning   bool
 	scanRoot   string
-	flashes    *fyne.Container // transient result banners, above the content pane
+	flashes    *fyne.Container // transient result banners, floated over the content
 }
 
 // Preference keys. Namespaced so a later setting cannot collide with one of
@@ -181,7 +187,12 @@ func Run(o Options) {
 		u.show(secs[i].build(u))
 	}
 
-	split := container.NewHSplit(u.nav, container.NewBorder(u.flashes, nil, nil, nil, u.content))
+	// Result banners float over the bottom of the content rather than sitting
+	// above it. Stacked above, every banner pushed the whole section down —
+	// the row under the pointer moved out from under it, which is jarring in a
+	// window whose buttons include Remove. Overlaid, nothing reflows.
+	overlay := container.NewVBox(layout.NewSpacer(), u.flashes)
+	split := container.NewHSplit(u.nav, container.NewStack(u.content, overlay))
 	split.SetOffset(0.16)
 
 	// The status bar is kept addressable so changing store can redraw it.
@@ -289,12 +300,42 @@ func (u *ui) statusBar() fyne.CanvasObject {
 		unlocked, sep(),
 		dim("agent"), agent,
 	)
-	return container.NewVBox(widget.NewSeparator(), container.NewPadded(bar))
+	return container.NewVBox(widget.NewSeparator(),
+		container.NewBorder(nil, nil, container.NewPadded(bar), nil, u.busyStrip()))
 }
 
 // routeStatus ranks a route: holding a local key or an agent session is the
 // state to be in, the recovery passphrase works but means this machine asks
 // every time, and not being open at all is neither.
+// busyStrip is the right-hand end of the status bar: what is running, and a bar
+// that says it is still running.
+//
+// It occupies the same height whether or not anything is happening. A slot that
+// only exists while busy would resize the status bar as operations start and
+// finish, which is the same reflow this placement exists to avoid, just at the
+// other end of the window.
+func (u *ui) busyStrip() fyne.CanvasObject {
+	if u.busyCount == 0 {
+		spacer := canvas.NewRectangle(nil)
+		spacer.SetMinSize(fyne.NewSize(0, busyStripHeight))
+		return spacer
+	}
+
+	label := widget.NewLabel(u.busyWhat)
+	label.Truncation = fyne.TextTruncateEllipsis
+
+	bar := widget.NewProgressBarInfinite()
+	sized := canvas.NewRectangle(nil)
+	sized.SetMinSize(fyne.NewSize(160, busyStripHeight))
+
+	return container.NewPadded(container.NewHBox(
+		label, container.New(layout.NewStackLayout(), sized, bar)))
+}
+
+// busyStripHeight keeps the status bar the same height whether or not something
+// is running.
+const busyStripHeight = 18
+
 func routeStatus(r core.Route) Status {
 	switch r {
 	case core.RouteLocalKey, core.RouteAgent:
@@ -329,27 +370,40 @@ func routeStatus(r core.Route) Status {
 // through it is covered. A raw `go func()` calling into core is not, and needs
 // its own.
 func (u *ui) busy(what string) func() {
-	bar := widget.NewProgressBarInfinite()
-	label := widget.NewLabel(what)
-
-	banner := container.NewBorder(nil, nil, nil, nil,
-		container.NewPadded(container.NewVBox(label, bar)))
-
 	fyne.Do(func() {
-		u.flashes.Add(banner)
-		u.flashes.Refresh()
+		u.busyCount++
+		u.busyWhat = what
+		u.redrawStatus()
 	})
 
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			fyne.Do(func() {
-				bar.Stop()
-				u.flashes.Remove(banner)
-				u.flashes.Refresh()
+				u.busyCount--
+				if u.busyCount <= 0 {
+					u.busyCount, u.busyWhat = 0, ""
+				}
+				u.redrawStatus()
 			})
 		})
 	}
+}
+
+// redrawStatus repaints the status bar and nothing else.
+//
+// This is the whole reason progress lives down there. An indicator inserted
+// above the content pushes everything below it down — the row the pointer is
+// over moves out from under the pointer, mid-click, which is jarring in a
+// window and dangerous in one whose buttons include Remove. The status bar is
+// already at the bottom and already a fixed height, so putting it there moves
+// nothing.
+func (u *ui) redrawStatus() {
+	if u.frame == nil {
+		return
+	}
+	u.frame.Objects[0] = u.statusBar()
+	u.frame.Refresh()
 }
 
 // flash reports the result of an operation as a banner that fades out on its

@@ -126,6 +126,12 @@ a bar that filled steadily would be inventing a number. The mechanism is one reu
 call, not a per-operation decision, so that covering a new operation is the default
 rather than something to remember.
 
+**R3.4.2** The indicator occupies a dedicated region of the status bar, which keeps its
+height whether or not anything is running, and result banners float over the content
+rather than being inserted above it. Nothing transient may reflow the interface: a
+banner that pushes the section down moves the row under the pointer out from under it
+mid-click, and this window's row actions include Remove.
+
 **R3.5** `internal/cli` is refactored to render `internal/core` results. It keeps its
 existing output byte-for-byte: the e2e suite asserts on that output and must pass
 unchanged. A refactor that alters CLI behaviour has failed.
