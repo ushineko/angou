@@ -13,8 +13,15 @@ Pass 2 covered the keyring and unlock-passphrase model (R2.2 through R2.6) and a
 `bootstrap` and `doctor`. The keyring backend is KWallet over D-Bus, split by build
 constraint so a macOS Keychain backend is a new file rather than a refactor.
 
+Pass 3 covered rotation (R4) and added `rekey`, `passwd`, and `prune`, along with
+`doctor --old-key`. More than one key bundle may now be present at once: an identity
+rekey has to replace both the key bundle and `store.angou`, which cannot be done in one
+atomic step on a plain directory, so the superseded bundle is retained and the reader
+tries each in turn. That makes the window recoverable rather than fatal, and
+`prune --bundles` closes it afterwards.
+
 The unchecked criteria are unstarted rather than failing. They belong to the bootstrap
-and release-signing chain (R5), rotation (R4), the session cache (R6.5), and the two
+and release-signing chain (R5), the session cache (R6.5), and the two
 integration criteria that depend on them — `gpg` reading a blob body, which needs a key
 export path, and `file(1)`/`xdg-mime` detection, which needs the packaging installed.
 
@@ -585,14 +592,14 @@ the Phase 3 validation gate.
 
 ### Rotation
 
-- [ ] `rekey --local` leaves every `blob_id` and blob body byte-identical.
-- [ ] `rekey --identity` re-encrypts all blobs; every blob decrypts under the new key
+- [x] `rekey --local` leaves every `blob_id` and blob body byte-identical.
+- [x] `rekey --identity` re-encrypts all blobs; every blob decrypts under the new key
       and none under the old.
-- [ ] `rekey --identity` interrupted mid-run (process killed) leaves the original store
+- [x] `rekey --identity` interrupted mid-run (process killed) leaves the original store
       fully readable.
-- [ ] `rekey --identity` changes every `blob_id`, so no filename in the new store
+- [x] `rekey --identity` changes every `blob_id`, so no filename in the new store
       appears in the old one (R4.2.1).
-- [ ] After `rekey --identity`, the old `K_name` computes no filename present in the
+- [x] After `rekey --identity`, the old `K_name` computes no filename present in the
       store.
 
 ### Bootstrap

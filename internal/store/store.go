@@ -87,6 +87,10 @@ type Store struct {
 	// are not blob names. They are usually sync-service debris and are worth
 	// showing the user, who is the only one who can decide to delete them.
 	SkippedOnReindex []string
+	// UnreadableOnReindex lists blob-shaped files the last rebuild could not
+	// decrypt. They belong to a different key — most often a superseded one
+	// after an identity rekey — and are reported so the user can prune them.
+	UnreadableOnReindex []string
 }
 
 // Root returns the store directory.
@@ -149,22 +153,16 @@ func Init(root string, recovery []byte) (*Store, error) {
 	return s, nil
 }
 
-// ExportIdentity opens the store's key bundle with the recovery passphrase and
-// returns the serialized identity. Bootstrap needs the bytes, not just a usable
-// identity, because it re-wraps them under the unlock passphrase.
+// ExportIdentity returns the serialized identity from whichever key bundle opens
+// this store. Bootstrap needs the bytes, not just a usable identity, because it
+// re-wraps them under the unlock passphrase.
 func ExportIdentity(root string, recovery []byte) ([]byte, error) {
-	bundleBytes, err := os.ReadFile(filepath.Join(root, BootstrapDir, KeyBundleName))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: no key bundle under %s", ErrNotAStore, root)
-		}
-		return nil, fmt.Errorf("read key bundle: %w", err)
-	}
-	bundle, err := keybundle.Unmarshal(bundleBytes)
-	if err != nil {
-		return nil, err
-	}
-	return bundle.Open(recovery)
+	return openIdentityFor(root, recovery)
+}
+
+// parseIdentity is the seam bundles.go uses to test a candidate identity.
+func parseIdentity(exported []byte) (*pgpcrypto.Identity, error) {
+	return pgpcrypto.ParsePrivate(exported)
 }
 
 // Open unlocks a store with the recovery passphrase. This is the path taken
@@ -226,6 +224,12 @@ func (s *Store) readMeta() error {
 		return fmt.Errorf("%w: naming key is %d bytes", ErrNotAStore, len(s.meta.NameKey))
 	}
 	return nil
+}
+
+// ExportLocalIdentity serializes the unlocked identity, for re-wrapping under a
+// fresh unlock passphrase.
+func (s *Store) ExportLocalIdentity() ([]byte, error) {
+	return s.identity.SerializePrivate()
 }
 
 // Meta returns a copy of the store metadata.
@@ -387,7 +391,7 @@ func (s *Store) Reindex() error {
 		return fmt.Errorf("scan store: %w", err)
 	}
 	rebuilt := Index{Entries: map[string]IndexEntry{}}
-	var skipped []string
+	var skipped, unreadable []string
 	for _, de := range names {
 		if de.IsDir() {
 			continue
@@ -405,14 +409,28 @@ func (s *Store) Reindex() error {
 			continue
 		}
 		env, err := s.readBlob(id)
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrNameBinding):
+			// A blob this key can read, filed under a name its own envelope
+			// does not address. That is the R1.8 substitution, and indexing it
+			// would file one secret under another's name — so the rebuild stops
+			// rather than recording it.
 			return fmt.Errorf("reindex %s: %w", name, err)
+		case err != nil:
+			// A blob this key cannot read at all is not this store's blob: a
+			// leftover from an interrupted identity rekey, another machine's
+			// conflicted copy, or something a user dropped in. Report it and
+			// carry on, or a rekey interrupted at the wrong moment would leave
+			// the store unindexable (R4.3).
+			unreadable = append(unreadable, name)
+			continue
 		}
 		rebuilt.Entries[id] = entryFromEnvelope(env)
 	}
 	s.index = rebuilt
 	s.IndexTrusted = true
 	s.SkippedOnReindex = skipped
+	s.UnreadableOnReindex = unreadable
 	return s.writeIndex()
 }
 

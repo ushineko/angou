@@ -36,6 +36,9 @@ type env struct {
 	store    string
 	work     string
 	recovery string
+	// fingerprint is the store identity reported by init, kept so a test can
+	// name the superseded key after a rotation.
+	fingerprint string
 	// withKeyring lets the child reach the session bus, and so the real
 	// kwalletd6. Off by default: a test that does not exercise the keyring must
 	// not be able to touch the developer's wallet even by accident.
@@ -138,6 +141,14 @@ func (e *env) run(args ...string) result {
 
 func (e *env) runWithPassphrase(passphrase string, args ...string) result {
 	e.t.Helper()
+	return e.runWithLines([]string{passphrase}, args...)
+}
+
+// runWithLines supplies several passphrases, one per line. Some commands need
+// more than one — rekey --identity opens the store and then seals a new bundle
+// — and the descriptor is a stream rather than a single value.
+func (e *env) runWithLines(lines []string, args ...string) result {
+	e.t.Helper()
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -145,7 +156,9 @@ func (e *env) runWithPassphrase(passphrase string, args ...string) result {
 	}
 	go func() {
 		defer func() { _ = w.Close() }()
-		_, _ = fmt.Fprintln(w, passphrase)
+		for _, line := range lines {
+			_, _ = fmt.Fprintln(w, line)
+		}
 	}()
 	defer func() { _ = r.Close() }()
 
@@ -254,6 +267,27 @@ func (e *env) mustRunNoPassphrase(args ...string) result {
 	return r
 }
 
+// mustRunWithLines is runWithLines with a non-zero exit treated as fatal.
+func (e *env) mustRunWithLines(lines []string, args ...string) result {
+	e.t.Helper()
+	r := e.runWithLines(lines, args...)
+	if r.code != 0 {
+		e.t.Fatalf("angou %v exited %d\nstdout:\n%s\nstderr:\n%s", args, r.code, r.stdout, r.stderr)
+	}
+	return r
+}
+
+// mustRunLines repeats this run's recovery passphrase n times, for commands that
+// ask for it more than once.
+func (e *env) mustRunLines(n int, args ...string) result {
+	e.t.Helper()
+	lines := make([]string, n)
+	for i := range lines {
+		lines[i] = e.recovery
+	}
+	return e.mustRunWithLines(lines, args...)
+}
+
 // mustRun runs a command and fails the test if it exits non-zero.
 func (e *env) mustRun(args ...string) result {
 	e.t.Helper()
@@ -264,10 +298,10 @@ func (e *env) mustRun(args ...string) result {
 	return r
 }
 
-// initStore creates the throwaway store.
+// initStore creates the throwaway store and records its identity fingerprint.
 func (e *env) initStore() {
 	e.t.Helper()
-	e.mustRun("init")
+	e.fingerprint = extractFingerprint(e.t, e.mustRun("init").stdout)
 }
 
 // writePlaintext creates an input file in the work directory.

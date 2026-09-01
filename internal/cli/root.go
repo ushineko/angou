@@ -59,6 +59,9 @@ func Root() *cobra.Command {
 		newRmCmd(),
 		newMvCmd(),
 		newReindexCmd(),
+		newRekeyCmd(),
+		newPasswdCmd(),
+		newPruneCmd(),
 	)
 	return root
 }

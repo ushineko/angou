@@ -63,19 +63,33 @@ func Confirm(fd int, first, second string) ([]byte, error) {
 	return a, nil
 }
 
+// fdReaders holds one reader per descriptor for the life of the process.
+//
+// A command can need more than one passphrase — rekey --identity opens the store
+// and then seals a new bundle — so the descriptor is a stream of passphrases,
+// one per line, rather than a single value. Re-opening it per call would either
+// re-read the first line or, with buffering, silently discard the rest.
+var fdReaders = map[int]*bufio.Reader{}
+
 func readFD(fd int) ([]byte, error) {
-	f := os.NewFile(uintptr(fd), fmt.Sprintf("passphrase-fd-%d", fd))
-	if f == nil {
-		return nil, fmt.Errorf("%w: file descriptor %d is not open", ErrNoInput, fd)
+	reader, ok := fdReaders[fd]
+	if !ok {
+		f := os.NewFile(uintptr(fd), fmt.Sprintf("passphrase-fd-%d", fd))
+		if f == nil {
+			return nil, fmt.Errorf("%w: file descriptor %d is not open", ErrNoInput, fd)
+		}
+		reader = bufio.NewReader(f)
+		fdReaders[fd] = reader
 	}
-	defer func() { _ = f.Close() }()
-	line, err := bufio.NewReader(f).ReadString('\n')
+
+	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("read passphrase from fd %d: %w", fd, err)
 	}
 	line = strings.TrimRight(line, "\r\n")
 	if line == "" {
-		return nil, fmt.Errorf("%w: file descriptor %d yielded an empty passphrase", ErrNoInput, fd)
+		return nil, fmt.Errorf("%w: file descriptor %d yielded no further passphrase. "+
+			"This command needs more than one; supply one per line", ErrNoInput, fd)
 	}
 	return []byte(line), nil
 }
