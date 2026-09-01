@@ -43,6 +43,8 @@ type env struct {
 	// kwalletd6. Off by default: a test that does not exercise the keyring must
 	// not be able to touch the developer's wallet even by accident.
 	withKeyring bool
+	// runtimeDir stands in for XDG_RUNTIME_DIR and is kept short on purpose.
+	runtimeDir string
 }
 
 // newEnv builds the environment for one test.
@@ -76,6 +78,18 @@ func newEnv(t *testing.T) *env {
 	}
 	mkdirAll(t, e.work)
 	e.recovery = freshPassphrase(t)
+
+	// A short runtime directory, deliberately not under t.TempDir(). A unix
+	// socket path is bounded by sockaddr_un.sun_path, and the temporary
+	// directory names Go generates are long enough on their own to exceed it
+	// once a subdirectory and a filename are added.
+	runtime, err := os.MkdirTemp("", "angou-rt-")
+	if err != nil {
+		t.Fatalf("create runtime directory: %v", err)
+	}
+	e.runtimeDir = runtime
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+
 	return e
 }
 
@@ -201,7 +215,7 @@ func (e *env) childEnv() []string {
 		"XDG_CONFIG_HOME": filepath.Join(e.home, ".config"),
 		"XDG_CACHE_HOME":  filepath.Join(e.home, ".cache"),
 		"XDG_STATE_HOME":  filepath.Join(e.home, ".local", "state"),
-		"XDG_RUNTIME_DIR": filepath.Join(base, "run"),
+		"XDG_RUNTIME_DIR": e.runtimeDir,
 		"ANGOU_STORE":     e.store,
 	}
 	for _, dir := range xdg {

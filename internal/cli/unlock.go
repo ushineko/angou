@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ushineko/angou/internal/agent"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
@@ -25,6 +26,18 @@ func unlock() (*store.Store, error) {
 	}
 
 	logf("opening store %s", dir)
+
+	// The agent first, when one is running: it is the only route that costs
+	// neither a key derivation nor a keyring round trip.
+	if s, err := unlockFromAgent(dir); err == nil {
+		logf("using the running agent")
+		return finishUnlock(s)
+	} else if !errors.Is(err, agent.ErrNoAgent) && !errors.Is(err, agent.ErrExpired) {
+		// A reachable agent that refused is worth reporting rather than
+		// silently working around.
+		fmt.Fprintf(os.Stderr, "angou: the agent for this store did not serve the key (%v); falling back.\n", err)
+	}
+
 	if localkey.Exists(dir) {
 		logf("using the machine-local key and the keyring")
 		s, err := unlockLocal(dir)
@@ -35,6 +48,20 @@ func unlock() (*store.Store, error) {
 	}
 	logf("no local key on this machine; using the recovery passphrase")
 	return openWithRecovery(dir)
+}
+
+// unlockFromAgent takes the cached route.
+func unlockFromAgent(dir string) (*store.Store, error) {
+	client, err := agent.Dial(dir)
+	if err != nil {
+		return nil, err
+	}
+	identity, err := client.Identity()
+	if err != nil {
+		return nil, err
+	}
+	defer prompt.Zero(identity)
+	return store.OpenWithExportedIdentity(dir, identity)
 }
 
 // unlockLocal takes the keyring route. It does not silently fall back to the

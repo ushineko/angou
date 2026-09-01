@@ -67,6 +67,7 @@ func Root() *cobra.Command {
 		newReleaseCmd(),
 		newVerifyBootstrapCmd(),
 		newCloneCmd(),
+		newAgentCmd(),
 	)
 	return root
 }

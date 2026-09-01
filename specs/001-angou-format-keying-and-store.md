@@ -35,8 +35,14 @@ suggests, and the narrowing is recorded rather than glossed:
 - `make build-static` is confirmed statically linked by `ldd` and `file`. Running it in
   a `scratch` container is not exercised by the suite.
 
-The session cache (R6.5) is specified but not implemented, and `agent` is absent from
-the command tree rather than stubbed.
+Pass 5 added the session cache (R6.5) and `agent`, completing the command set of R6.4.
+All seventeen subcommands are implemented.
+
+R6.5.1 records a constraint found in implementation: a unix socket path is bounded by
+`sockaddr_un.sun_path` — 108 bytes on Linux, 104 on macOS — and exceeding it fails at
+bind with "invalid argument", which explains nothing. The socket name is kept short and
+the limit is checked where it can still be reported, naming `XDG_RUNTIME_DIR` as the
+thing to change.
 
 R5.4.3 records a correction made during implementation: `bootstrap.sh` cannot enforce
 the version floor, because the floor lives inside the encrypted store and a plaintext
@@ -500,6 +506,13 @@ best-effort and is documented as such rather than claimed. The socket mode exclu
 other users only; it is not a boundary against processes running as the same user, and
 the agent MUST NOT be described as providing one (R-10). The agent verifies peer
 credentials, keeps its API minimal, and defaults to a short TTL.
+
+R6.5.1 The agent socket path is bounded by `sockaddr_un.sun_path` (108 bytes on Linux,
+104 on macOS). The limit is checked before binding and reported with the offending path,
+because the kernel's own failure at that point is an unexplained "invalid argument". The
+abstract socket namespace would avoid the limit and is deliberately not used: abstract
+sockets carry no filesystem permissions, so the 0600 mode that excludes other users
+would not exist at all.
 
 R6.6 Package layout:
 
