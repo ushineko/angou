@@ -119,19 +119,30 @@ func Fingerprint(storeDir string) (string, error) {
 	return f.Fingerprint, nil
 }
 
-// Write stores the identity wrapped under the unlock passphrase.
+// Write stores the identity wrapped under the unlock passphrase. The local tree
+// is 0700 throughout: it is key material (R2.6).
 func Write(storeDir, fingerprint string, identity, unlock []byte) error {
-	dir, err := Dir(storeDir)
+	staged, err := WriteStaged(storeDir, fingerprint, identity, unlock)
 	if err != nil {
 		return err
 	}
-	// 0700 throughout: the local tree is key material (R2.6).
+	return CommitStaged(staged)
+}
+
+// WriteStaged writes the wrapped identity to a temporary path beside its final
+// one and returns that path, so a caller can make the keyring entry and the
+// local key change over as close to together as a plain filesystem allows.
+func WriteStaged(storeDir, fingerprint string, identity, unlock []byte) (string, error) {
+	dir, err := Dir(storeDir)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create local key directory: %w", err)
+		return "", fmt.Errorf("create local key directory: %w", err)
 	}
 	payload, err := seal(unlock, identity)
 	if err != nil {
-		return err
+		return "", err
 	}
 	raw, err := json.MarshalIndent(file{
 		Version:     fileVersion,
@@ -139,14 +150,28 @@ func Write(storeDir, fingerprint string, identity, unlock []byte) error {
 		Payload:     payload,
 	}, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode local key: %w", err)
+		return "", fmt.Errorf("encode local key: %w", err)
 	}
-	p, err := path(storeDir)
-	if err != nil {
-		return err
+	staged := filepath.Join(dir, "identity.local.staged")
+	if err := os.WriteFile(staged, raw, 0o600); err != nil {
+		return "", fmt.Errorf("write staged local key: %w", err)
 	}
-	if err := os.WriteFile(p, raw, 0o600); err != nil {
-		return fmt.Errorf("write local key: %w", err)
+	return staged, nil
+}
+
+// CommitStaged moves a staged local key into place, replacing any existing one.
+func CommitStaged(staged string) error {
+	final := filepath.Join(filepath.Dir(staged), "identity.local")
+	if err := os.Rename(staged, final); err != nil {
+		return fmt.Errorf("commit local key: %w", err)
+	}
+	return nil
+}
+
+// DiscardStaged removes a staged local key that will not be committed.
+func DiscardStaged(staged string) error {
+	if err := os.Remove(staged); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("discard staged local key: %w", err)
 	}
 	return nil
 }

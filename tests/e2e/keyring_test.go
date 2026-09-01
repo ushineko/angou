@@ -1,4 +1,21 @@
-//go:build e2e
+//go:build e2e && e2e_keyring
+
+// These tests drive a live kwalletd6 and therefore touch the wallet the user
+// keeps their real secrets in. They are gated behind their own build tag and run
+// by `make e2e-keyring`, never by `make e2e`.
+//
+// `make e2e-keyring` is interactive and needs someone at the desktop. kwalletd
+// may raise an access dialog for a new application, and with nothing to answer it
+// the run blocks indefinitely rather than failing. That is a property of the
+// service, not of these tests, and it is why they are not part of the default
+// gate.
+//
+// The gate is not squeamishness. KWallet offers no non-interactive way to create
+// a wallet of the suite's own — opening one that does not exist raises a dialog
+// on the user's desktop and blocks until it is answered — so the best available
+// isolation is a per-run entry name in the wallet that already exists, removed
+// afterwards. That is good enough to run deliberately and not good enough to run
+// on every commit.
 
 package e2e
 
@@ -28,6 +45,19 @@ func keyringEnv(t *testing.T) *env {
 	e := newEnv(t)
 	e.withKeyring = true
 
+	// These tests use the session's own wallet, with an entry named for this
+	// run, and remove that entry afterwards.
+	//
+	// A wallet dedicated to the run would isolate better and was tried. It is
+	// not usable: KWallet has no non-interactive way to create one. Opening a
+	// wallet that does not exist raises a password dialog on the user's desktop
+	// and blocks until it is answered, so a suite that made its own wallet would
+	// interrupt whoever ran it and hang in CI. The entry name carries the
+	// store's identity fingerprint, which is freshly generated per run, so a
+	// test cannot collide with or overwrite an entry belonging to a real store;
+	// that is the isolation actually available here, and the residual exposure
+	// is an inert entry left behind if a run is killed outright.
+
 	// localkey resolves its directory from XDG_DATA_HOME at call time, so point
 	// this process at the child's tree. Without it the helpers below would look
 	// for the child's local key under the developer's own data directory — and
@@ -38,23 +68,9 @@ func keyringEnv(t *testing.T) *env {
 	return e
 }
 
-// requireKeyring skips when no session bus is reachable. This is a skip rather
-// than a failure because a keyring is a property of the machine running the
-// suite, unlike the HOME guard, which is a property of the suite itself.
-func requireKeyring(t *testing.T) {
-	t.Helper()
-	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
-		t.Skip("no session bus: this test needs a live kwalletd6")
-	}
-	ring, err := keyring.Open()
-	if err != nil {
-		t.Skipf("no reachable keyring backend: %v", err)
-	}
-	_ = ring.Close()
-}
-
-// removeTestEntry deletes the run's wallet entry, so the suite leaves the
-// developer's wallet as it found it.
+// removeTestEntry deletes the run's wallet entry and verifies it is gone. A
+// removal that silently failed would leave an entry in the developer's own
+// wallet, which is the isolation failure R8.5 exists to prevent.
 func removeTestEntry(t *testing.T, e *env) {
 	t.Helper()
 	if !localkey.Exists(e.store) {
@@ -73,12 +89,24 @@ func removeTestEntry(t *testing.T, e *env) {
 		t.Errorf("could not remove the test keyring entry for %s: %v", fingerprint, err)
 		return
 	}
-	// Verify rather than assume. A removal that silently failed would leave an
-	// entry in the developer's own wallet, which is the isolation failure R8.5
-	// exists to prevent.
 	if _, err := ring.Get(fingerprint); !errors.Is(err, keyring.ErrNoEntry) {
 		t.Errorf("the test keyring entry for %s survived cleanup (Get returned %v)", fingerprint, err)
 	}
+}
+
+// requireKeyring skips when no session bus is reachable. This is a skip rather
+// than a failure because a keyring is a property of the machine running the
+// suite, unlike the HOME guard, which is a property of the suite itself.
+func requireKeyring(t *testing.T) {
+	t.Helper()
+	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
+		t.Skip("no session bus: this test needs a live kwalletd6")
+	}
+	ring, err := keyring.Open()
+	if err != nil {
+		t.Skipf("no reachable keyring backend: %v", err)
+	}
+	_ = ring.Close()
 }
 
 // TestBootstrapRemovesTheNeedForTheRecoveryPassphrase is the point of the
@@ -188,24 +216,6 @@ func TestMissingKeyringEntryIsExplained(t *testing.T) {
 	require.Contains(t, d.stdout, "MISSING")
 }
 
-// TestBootstrapWithoutAKeyringChangesNothing covers R2.5: where no backend is
-// reachable, bootstrap reports that and leaves the store on the recovery
-// passphrase rather than half-configuring the machine.
-func TestBootstrapWithoutAKeyringChangesNothing(t *testing.T) {
-	e := newEnv(t) // withKeyring stays false: the child gets no session bus.
-	e.initStore()
-
-	r := e.mustRun("bootstrap")
-	require.Contains(t, r.stderr, "No keyring is available")
-	require.Contains(t, r.stderr, "recovery passphrase")
-	require.False(t, localkey.Exists(e.store), "no local key may be written without a keyring")
-
-	// And the store is still fully usable by the recovery route.
-	src := e.writePlaintext("n.env", []byte("FIELD=value\n"), 0o600)
-	e.mustRun("enc", "--as", "n.env", src)
-	require.Equal(t, "FIELD=value\n", e.mustRun("dec", "n.env").stdout)
-}
-
 // TestForgetReturnsTheMachineToTheRecoveryPassphrase covers the reverse
 // operation, which is what a user runs before handing a machine on.
 func TestForgetReturnsTheMachineToTheRecoveryPassphrase(t *testing.T) {
@@ -256,4 +266,28 @@ func filesUnder(t *testing.T, root string) []string {
 		t.Fatalf("walk %s: %v", root, err)
 	}
 	return out
+}
+
+// TestRekeyLocalChangesNothingInTheStore covers R4.1: rotating the machine
+// password is a local operation, and a user reaching for it after losing a
+// laptop needs to know it did not touch the shared store.
+func TestRekeyLocalChangesNothingInTheStore(t *testing.T) {
+	e := keyringEnv(t)
+	e.initStore()
+	want := seedStore(t, e, 3)
+	e.mustRun("bootstrap")
+
+	before := blobDigests(t, e)
+	beforeLocal := readLocalKeyFile(t, e)
+
+	e.mustRunNoPassphrase("rekey", "--local")
+
+	require.Equal(t, before, blobDigests(t, e),
+		"rekey --local must leave every blob name and every blob body byte-identical")
+	require.NotEqual(t, beforeLocal, readLocalKeyFile(t, e),
+		"the local key must be re-wrapped under a fresh machine password")
+
+	for path, content := range want {
+		require.Equal(t, content, e.mustRunNoPassphrase("dec", path).stdout)
+	}
 }

@@ -38,30 +38,6 @@ func blobDigests(t *testing.T, e *env) map[string]string {
 	return out
 }
 
-// TestRekeyLocalChangesNothingInTheStore covers R4.1: rotating the machine
-// password is a local operation, and a user reaching for it after losing a
-// laptop needs to know it did not touch the shared store.
-func TestRekeyLocalChangesNothingInTheStore(t *testing.T) {
-	e := keyringEnv(t)
-	e.initStore()
-	want := seedStore(t, e, 3)
-	e.mustRun("bootstrap")
-
-	before := blobDigests(t, e)
-	beforeLocal := readLocalKeyFile(t, e)
-
-	e.mustRunNoPassphrase("rekey", "--local")
-
-	require.Equal(t, before, blobDigests(t, e),
-		"rekey --local must leave every blob name and every blob body byte-identical")
-	require.NotEqual(t, beforeLocal, readLocalKeyFile(t, e),
-		"the local key must be re-wrapped under a fresh machine password")
-
-	for path, content := range want {
-		require.Equal(t, content, e.mustRunNoPassphrase("dec", path).stdout)
-	}
-}
-
 // TestRekeyIdentityRotatesKeyAndNames covers R4.2 and R4.2.1. Rotating the
 // keypair without rotating the naming key would leave the deterministic names in
 // place, and with them an observer's ability to follow each file across
@@ -112,7 +88,10 @@ func TestOldKeyOpensNothingAfterRekey(t *testing.T) {
 
 	// And once the superseded bundle is pruned, the check reports that it cannot
 	// be performed rather than reporting a clean result it did not establish.
-	e.mustRun("prune", "--bundles")
+	// prune --bundles asks for the recovery passphrase a second time: it decides
+	// which bundle to keep by testing each against the store rather than by
+	// trusting the filename.
+	e.mustRunLines(2, "prune", "--bundles")
 	after := e.run("doctor", "--old-key", oldFingerprint)
 	require.NotZero(t, after.code)
 	require.Contains(t, after.stderr, "must not be assumed")
@@ -213,4 +192,80 @@ func (e *env) startAndKill(t *testing.T, d time.Duration, args ...string) int {
 		return 0
 	}
 	return 1
+}
+
+// TestPruneKeepsTheBundleThatOpensTheStore covers the failure mode that makes
+// prune dangerous rather than tidy.
+//
+// An identity rekey has to replace both the key bundle and store.angou, and
+// those cannot change in one step. Interrupted in between, the file named
+// keybundle.json is the one that does *not* open the store, and the retained
+// bundle is the one that does. A prune that kept the current bundle by its
+// filename would delete the only usable one and finish the damage the
+// interruption started.
+func TestPruneKeepsTheBundleThatOpensTheStore(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	want := seedStore(t, e, 3)
+	e.mustRunLines(2, "rekey", "--identity")
+
+	// Reproduce the interrupted state by exchanging the two bundle names, so
+	// the current name holds the bundle that no longer opens the store.
+	current := e.storePath("bootstrap", "keybundle.json")
+	superseded := supersededBundlePath(t, e)
+	swapFiles(t, current, superseded)
+
+	// The store still opens, because the reader tries every bundle.
+	require.Contains(t, e.mustRun("ls").stdout, "proj/a.env")
+
+	e.mustRunLines(2, "prune", "--bundles")
+
+	// And it still opens afterwards, which is the whole point.
+	for path, content := range want {
+		require.Equal(t, content, e.mustRun("dec", path).stdout,
+			"%s must survive a prune performed in the interrupted state", path)
+	}
+	require.NoFileExists(t, superseded, "the unusable bundle should be gone")
+	require.FileExists(t, current, "the working bundle should have been promoted")
+}
+
+// TestPruneOrphansRefusesMisnamedBlobs covers the other prune hazard. A blob that
+// decrypts with the current key but sits under a name its envelope does not
+// address is not rotation debris — it is the R1.8 substitution — and deleting it
+// would destroy both a live secret and the evidence of the tampering.
+func TestPruneOrphansRefusesMisnamedBlobs(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	seedStore(t, e, 2)
+
+	names := e.blobNames()
+	require.Len(t, names, 2)
+	// Serve one blob's ciphertext under the other's name.
+	require.NoError(t, os.WriteFile(e.storePath(names[0]), readFile(t, e.storePath(names[1])), 0o600))
+
+	r := e.run("prune", "--orphans")
+	require.NotZero(t, r.code, "a name-binding failure must not be pruned away quietly")
+	require.Contains(t, r.stderr, "Refused to remove")
+	require.FileExists(t, e.storePath(names[0]),
+		"the misnamed blob must be left in place as evidence")
+}
+
+func supersededBundlePath(t *testing.T, e *env) string {
+	t.Helper()
+	entries, err := os.ReadDir(e.storePath("bootstrap"))
+	require.NoError(t, err)
+	for _, de := range entries {
+		if strings.HasPrefix(de.Name(), "keybundle-") {
+			return e.storePath("bootstrap", de.Name())
+		}
+	}
+	t.Fatal("no superseded key bundle was retained by the rotation")
+	return ""
+}
+
+func swapFiles(t *testing.T, a, b string) {
+	t.Helper()
+	aBytes, bBytes := readFile(t, a), readFile(t, b)
+	require.NoError(t, os.WriteFile(a, bBytes, 0o600))
+	require.NoError(t, os.WriteFile(b, aBytes, 0o600))
 }

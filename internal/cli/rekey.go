@@ -84,11 +84,22 @@ func rekeyLocal() error {
 	}
 	defer prompt.Zero(fresh)
 
+	// Write the replacement local key to a staging path first, so the wallet
+	// entry — the only copy of the passphrase for the key already in place — is
+	// not overwritten until its replacement is durable on disk. The remaining
+	// window is a single rename; if the process dies inside it, the machine
+	// needs `angou bootstrap --force`, which is recoverable with the recovery
+	// passphrase.
 	fingerprint := s.Fingerprint()
-	if err := ring.Set(fingerprint, fresh); err != nil {
+	staged, err := localkey.WriteStaged(dir, fingerprint, exported, fresh)
+	if err != nil {
 		return err
 	}
-	if err := localkey.Write(dir, fingerprint, exported, fresh); err != nil {
+	if err := ring.Set(fingerprint, fresh); err != nil {
+		_ = localkey.DiscardStaged(staged)
+		return err
+	}
+	if err := localkey.CommitStaged(staged); err != nil {
 		return err
 	}
 	if err := selfTest(dir); err != nil {
@@ -114,7 +125,12 @@ func rekeyIdentity() error {
 	// keyring route never learns it, so ask regardless of how the store opened.
 	fmt.Fprintln(os.Stderr, "The new key bundle needs a recovery passphrase. This may be the one you already\n"+
 		"use; pass it again to keep it, or use `angou passwd` afterwards to change it.")
-	recovery, err := prompt.Passphrase(global.passphraseFD, "Recovery passphrase for the new key bundle: ")
+	// Confirmed, like init and passwd. A typo here seals the newly generated
+	// identity under a passphrase nobody knows, and the rotation then deletes
+	// the old blobs — so the mistake is unrecoverable rather than merely
+	// annoying.
+	recovery, err := prompt.Confirm(global.passphraseFD,
+		"Recovery passphrase for the new key bundle: ", "Repeat it: ")
 	if err != nil {
 		return err
 	}
@@ -209,19 +225,37 @@ func newPruneCmd() *cobra.Command {
 				return err
 			}
 			if bundles {
-				if err := s.PruneSupersededBundles(); err != nil {
+				// Which bundle to keep is decided by testing each against the
+				// store, so the recovery passphrase is needed even when the
+				// store itself opened from the keyring.
+				recovery, err := prompt.Passphrase(global.passphraseFD,
+					"Recovery passphrase (to identify which bundle to keep): ")
+				if err != nil {
 					return err
 				}
-				fmt.Println("Removed superseded key bundles.")
+				defer prompt.Zero(recovery)
+				if err := s.PruneSupersededBundles(recovery); err != nil {
+					return err
+				}
+				fmt.Println("Kept the key bundle that opens this store and removed the rest.")
 			}
 			if orphans {
-				removed, err := s.PruneOrphans()
+				removed, misnamed, err := s.PruneOrphans()
 				if err != nil {
 					return err
 				}
 				fmt.Printf("Removed %d unreadable file(s).\n", len(removed))
 				for _, name := range removed {
 					fmt.Printf("  %s\n", name)
+				}
+				if len(misnamed) > 0 {
+					fmt.Fprintf(os.Stderr, "\nRefused to remove %d blob(s) that decrypt with this store's key but are\n"+
+						"filed under a name their own contents do not address. That is not rotation\n"+
+						"debris — it is what a substituted blob looks like — so they are left in place:\n", len(misnamed))
+					for _, name := range misnamed {
+						fmt.Fprintf(os.Stderr, "  %s\n", name)
+					}
+					return fmt.Errorf("%d blob(s) failed the name binding and were left alone", len(misnamed))
 				}
 			}
 			return nil

@@ -5,6 +5,7 @@ package keyring
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -29,10 +30,16 @@ const (
 type kwallet struct {
 	conn   *dbus.Conn
 	object dbus.BusObject
+	wallet string
 	handle int32
 }
 
-// Open connects to the platform keyring.
+// Open connects to the platform keyring, using the wallet named by WalletEnv
+// when it is set and the session's default wallet otherwise.
+//
+// Naming a wallet that does not yet exist makes kwalletd raise a creation dialog
+// on the user's desktop and wait for it, so WalletEnv is for selecting a wallet
+// the user already has, not for conjuring one.
 func Open() (Keyring, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
@@ -40,12 +47,14 @@ func Open() (Keyring, error) {
 	}
 	object := conn.Object(kwalletService, dbus.ObjectPath(kwalletPath))
 
-	var name string
-	if err := object.Call(kwalletInterface+".localWallet", 0).Store(&name); err != nil {
-		return nil, fmt.Errorf("%w: kwalletd6 is not answering: %w", ErrUnavailable, err)
+	name := os.Getenv(WalletEnv)
+	if name == "" {
+		if err := object.Call(kwalletInterface+".localWallet", 0).Store(&name); err != nil {
+			return nil, fmt.Errorf("%w: kwalletd6 is not answering: %w", ErrUnavailable, err)
+		}
 	}
 
-	k := &kwallet{conn: conn, object: object}
+	k := &kwallet{conn: conn, object: object, wallet: name}
 	if err := k.openWallet(name); err != nil {
 		return nil, err
 	}
@@ -106,11 +115,29 @@ func (k *kwallet) Set(storeID string, secret []byte) error {
 }
 
 func (k *kwallet) Remove(storeID string) error {
+	entry := EntryName(storeID)
+
+	// Removing something that is not there is not an error — the point of the
+	// call is to leave nothing behind — but a removal that failed for any other
+	// reason must not be reported as success. The paths that call this claim to
+	// have cleared the unlock passphrase, and acting on a false claim leaves it
+	// in the wallet after the local key it protects is gone.
+	var present bool
+	if err := k.object.Call(kwalletInterface+".hasEntry", 0, k.handle, Folder, entry, appID).Store(&present); err != nil {
+		return fmt.Errorf("query keyring entry: %w", err)
+	}
+	if !present {
+		return nil
+	}
+
 	var result int32
 	err := k.object.Call(kwalletInterface+".removeEntry", 0,
-		k.handle, Folder, EntryName(storeID), appID).Store(&result)
+		k.handle, Folder, entry, appID).Store(&result)
 	if err != nil {
 		return fmt.Errorf("remove keyring entry: %w", err)
+	}
+	if result != 0 {
+		return fmt.Errorf("remove keyring entry: kwalletd returned %d", result)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -261,22 +262,64 @@ func (s *Store) RewrapRecovery(newRecovery []byte) error {
 	if err := writeFileAtomic(filepath.Join(s.root, BootstrapDir, KeyBundleName), raw, 0o600); err != nil {
 		return err
 	}
-	return s.PruneSupersededBundles()
+	return s.PruneSupersededBundles(newRecovery)
 }
 
-// PruneSupersededBundles removes retained bundles, leaving only the current one.
+// PruneSupersededBundles keeps the one bundle that actually opens this store and
+// removes the rest.
 //
 // They are removed rather than kept indefinitely because each is an independent
 // offline target for whichever recovery passphrase guarded it: a rotated-away
 // passphrase that still opens a bundle in the store has not really been rotated
 // away.
-func (s *Store) PruneSupersededBundles() error {
+//
+// Which bundle to keep is determined by testing each against the live metadata
+// blob rather than by trusting the name. After a rotation interrupted between
+// the bundle swap and the metadata swap, the file called keybundle.json is the
+// one that does *not* open the store, and keeping it by name would leave the
+// store unopenable — turning the tool that tidies up after a failed rotation
+// into the thing that completes the damage. Testing instead also repairs that
+// state, by promoting the working bundle back to the current name.
+func (s *Store) PruneSupersededBundles(recovery []byte) error {
 	paths, err := bundlePaths(s.root)
 	if err != nil {
 		return err
 	}
+	metaRaw, err := os.ReadFile(filepath.Join(s.root, MetaName))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", MetaName, err)
+	}
+
+	keep := ""
 	for _, path := range paths {
-		if filepath.Base(path) == KeyBundleName {
+		exported, err := readBundle(path, recovery)
+		if err != nil {
+			continue
+		}
+		if identityOpens(exported, metaRaw) {
+			keep = path
+			break
+		}
+	}
+	if keep == "" {
+		return fmt.Errorf("%w: refusing to prune, because no bundle here opens %s with the "+
+			"passphrase given. Pruning now could leave the store unopenable",
+			ErrNoUsableBundle, MetaName)
+	}
+
+	current := filepath.Join(s.root, BootstrapDir, KeyBundleName)
+	if keep != current {
+		// Promote the working bundle, repairing an interrupted rotation.
+		if err := os.Remove(current); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", KeyBundleName, err)
+		}
+		if err := os.Rename(keep, current); err != nil {
+			return fmt.Errorf("promote %s: %w", filepath.Base(keep), err)
+		}
+		keep = current
+	}
+	for _, path := range paths {
+		if path == keep || path == current {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -288,23 +331,33 @@ func (s *Store) PruneSupersededBundles() error {
 
 // PruneOrphans removes blob-shaped files this store's key cannot read, which is
 // what an interrupted rotation leaves behind.
-func (s *Store) PruneOrphans() ([]string, error) {
+//
+// A blob that decrypts with the current key but is filed under a name its own
+// envelope does not address is not an orphan: it is the R1.8 substitution, and
+// deleting it would destroy both a live secret and the evidence of the
+// tampering. Those are reported and left alone, and the caller is expected to
+// surface them.
+func (s *Store) PruneOrphans() (removed, misnamed []string, err error) {
 	names, err := s.blobFileNames()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var removed []string
 	for _, name := range names {
 		id := strings.TrimSuffix(name, container.Extension)
-		if _, err := s.readBlob(id); err == nil {
+		_, err := s.readBlob(id)
+		switch {
+		case err == nil:
+			continue
+		case errors.Is(err, ErrNameBinding):
+			misnamed = append(misnamed, name)
 			continue
 		}
 		if err := os.Remove(filepath.Join(s.root, name)); err != nil {
-			return removed, fmt.Errorf("remove %s: %w", name, err)
+			return removed, misnamed, fmt.Errorf("remove %s: %w", name, err)
 		}
 		removed = append(removed, name)
 	}
-	return removed, nil
+	return removed, misnamed, nil
 }
 
 // OldKeyOpensAnything reports whether a superseded identity still decrypts

@@ -68,6 +68,13 @@ test: ## Run unit tests with the race detector (fast, no build)
 e2e: build-static ## Build the real binary and run end-to-end tests against throwaway stores
 	@ANGOU_E2E_BIN=$(CURDIR)/angou go test -race -tags e2e -count=1 -v ./tests/e2e/...
 
+.PHONY: e2e-keyring
+e2e-keyring: build-static ## Run the keyring tests against the real KWallet (INTERACTIVE - see below)
+	@echo "These tests write a per-run entry into your session's KWallet and remove it"
+	@echo "afterwards. KWallet may raise an access dialog: this target needs a human at"
+	@echo "the desktop to answer it, and will hang without one. Do not run it in CI."
+	@ANGOU_E2E_BIN=$(CURDIR)/angou go test -race -tags 'e2e e2e_keyring' -count=1 -v ./tests/e2e/...
+
 .PHONY: e2e-container
 e2e-container: build-all ## Bootstrap test on a bare machine (no angou, no gpg, no Go)
 	@./tests/e2e/container/run.sh

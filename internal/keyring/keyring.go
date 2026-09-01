@@ -39,6 +39,14 @@ type Keyring interface {
 // angou confines itself to.
 const Folder = "angou"
 
+// WalletEnv names the wallet to use instead of the session's default one.
+//
+// It exists so the end-to-end suite can operate a wallet of its own and delete
+// it afterwards, rather than writing into the wallet the user keeps their real
+// secrets in. It selects a namespace and changes no protection, so it is also a
+// reasonable thing for a user to set deliberately.
+const WalletEnv = "ANGOU_KWALLET"
+
 // EntryName builds the per-store entry key. A machine may hold several stores,
 // so the identity fingerprint rather than a fixed name selects the entry.
 func EntryName(storeID string) string { return "unlock-" + storeID }
