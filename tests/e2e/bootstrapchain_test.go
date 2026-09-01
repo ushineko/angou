@@ -43,7 +43,7 @@ func releasedStore(t *testing.T) (*env, string) {
 // real 7 MB binary per case would make the suite slow for no added confidence.
 func writeFakeBinary(t *testing.T, path string) {
 	t.Helper()
-	script := "#!/bin/sh\necho 'angou version 0.1.0-dev (fake)'\n"
+	script := "#!/bin/sh\necho 'a stand-in for a built angou'\n"
 	require.NoError(t, os.WriteFile(path, []byte(script), 0o755)) //nolint:gosec // it must be executable
 }
 
@@ -96,7 +96,7 @@ func TestReleaseStashesSignedBinariesWithMetadata(t *testing.T) {
 	e, fingerprint := releasedStore(t)
 
 	for _, platform := range []string{"linux-amd64", "darwin-arm64"} {
-		name := "angou-" + platform + "-0.1.0-dev"
+		name := e.binaryName(t, platform)
 		binary := e.storePath("bootstrap", name)
 		require.FileExists(t, binary)
 		require.FileExists(t, binary+".sig")
@@ -143,7 +143,7 @@ func TestBareMachineInstallsFromTheStore(t *testing.T) {
 func TestInstallerRefusesATamperedBinary(t *testing.T) {
 	e, fingerprint := releasedStore(t)
 
-	binary := e.storePath("bootstrap", "angou-linux-amd64-0.1.0-dev")
+	binary := e.storePath("bootstrap", e.binaryName(t, "linux-amd64"))
 	require.NoError(t, os.WriteFile(binary, append(readFile(t, binary), []byte("\n# added\n")...), 0o755)) //nolint:gosec // it must stay executable
 
 	r := e.runInstaller(t, "")
@@ -167,7 +167,7 @@ func TestInstallerRefusesAnotherKeysSignature(t *testing.T) {
 	attacker, attackerFingerprint := releasedStore(t)
 	require.NotEqual(t, fingerprint, attackerFingerprint)
 
-	name := "angou-linux-amd64-0.1.0-dev"
+	name := e.binaryName(t, "linux-amd64")
 	copyOver(t, attacker.storePath("bootstrap", name), e.storePath("bootstrap", name))
 	copyOver(t, attacker.storePath("bootstrap", name+".sig"), e.storePath("bootstrap", name+".sig"))
 	copyOver(t, attacker.storePath("bootstrap", "release-key.asc"), e.storePath("bootstrap", "release-key.asc"))
@@ -207,7 +207,7 @@ func TestInstallerListsAvailablePlatforms(t *testing.T) {
 
 	// Remove everything for the host platform, leaving only the other one.
 	for _, suffix := range []string{"", ".sig", ".json"} {
-		require.NoError(t, os.Remove(e.storePath("bootstrap", "angou-linux-amd64-0.1.0-dev"+suffix)))
+		require.NoError(t, os.Remove(e.storePath("bootstrap", e.binaryName(t, "linux-amd64")+suffix)))
 	}
 
 	r := e.runInstaller(t, "")
@@ -270,7 +270,7 @@ func TestRetentionPrunesPerPlatform(t *testing.T) {
 
 	// Stand in extra versions for one platform, as successive releases would.
 	dir := e.storePath("bootstrap")
-	base := "angou-linux-amd64-0.1.0-dev"
+	base := e.binaryName(t, "linux-amd64")
 	for _, version := range []string{"0.0.7", "0.0.8", "0.0.9"} {
 		for _, suffix := range []string{"", ".sig", ".json"} {
 			copyOver(t, filepath.Join(dir, base+suffix),
@@ -292,7 +292,7 @@ func TestRetentionPrunesPerPlatform(t *testing.T) {
 	require.Equal(t, 2, remaining, "retention must keep exactly --keep per platform")
 
 	// The other platform is untouched, because retention is per platform.
-	require.FileExists(t, filepath.Join(dir, "angou-darwin-arm64-0.1.0-dev"))
+	require.FileExists(t, filepath.Join(dir, e.binaryName(t, "darwin-arm64")))
 }
 
 // TestCloneWithoutBinaries covers R5.10's second half.
@@ -304,7 +304,7 @@ func TestCloneWithoutBinaries(t *testing.T) {
 	dest := filepath.Join(e.work, "clone")
 	e.mustRun("clone", "--to", dest, "--no-binaries")
 
-	require.NoFileExists(t, filepath.Join(dest, "bootstrap", "angou-linux-amd64-0.1.0-dev"),
+	require.NoFileExists(t, filepath.Join(dest, "bootstrap", e.binaryName(t, "linux-amd64")),
 		"the binaries must be omitted")
 	require.FileExists(t, filepath.Join(dest, "bootstrap", "keybundle.json"),
 		"the key bundle must not be")
@@ -340,17 +340,19 @@ func TestInstallerPrefersAReleaseOverAPrerelease(t *testing.T) {
 	e, _ := releasedStore(t)
 	dir := e.storePath("bootstrap")
 
-	// A newer, non-prerelease build retained alongside the 0.1.0-dev one.
+	// An explicit pair, higher than whatever this build calls itself, so the
+	// test does not depend on the version under test being a pre-release.
+	const release, prerelease = "angou-linux-amd64-9.9.8", "angou-linux-amd64-9.9.8-dev"
 	for _, suffix := range []string{"", ".sig", ".json"} {
-		copyOver(t, filepath.Join(dir, "angou-linux-amd64-0.1.0-dev"+suffix),
-			filepath.Join(dir, "angou-linux-amd64-0.1.0"+suffix))
+		copyOver(t, filepath.Join(dir, e.binaryName(t, "linux-amd64")+suffix), filepath.Join(dir, release+suffix))
+		copyOver(t, filepath.Join(dir, e.binaryName(t, "linux-amd64")+suffix), filepath.Join(dir, prerelease+suffix))
 	}
 
 	r := e.runInstaller(t, "")
 	require.Zero(t, r.code, "the installer should succeed:\n%s", r.stderr)
-	require.Contains(t, r.stderr, "installed angou-linux-amd64-0.1.0 to",
+	require.Contains(t, r.stderr, "installed "+release+" to",
 		"the release must be preferred over the pre-release it leads to")
-	require.NotContains(t, r.stderr, "installed angou-linux-amd64-0.1.0-dev to")
+	require.NotContains(t, r.stderr, "installed "+prerelease+" to")
 }
 
 // TestOlderBinaryIsRefusedByEveryCommand covers R5.4.2 where it matters. A
@@ -469,7 +471,7 @@ func TestReleaseRejectsAWrongKeyPassphrase(t *testing.T) {
 		"release", "--dist", dist, "--signing-key", keyPath)
 	require.NotZero(t, r.code)
 	require.Contains(t, r.stderr, "does not open it")
-	require.NoFileExists(t, e.storePath("bootstrap", "angou-linux-amd64-0.1.0-dev"),
+	require.NoFileExists(t, e.storePath("bootstrap", e.binaryName(t, "linux-amd64")),
 		"nothing may be stashed when the key could not be unlocked")
 }
 
@@ -499,7 +501,7 @@ func TestPinnedBuildRefusesAnotherKey(t *testing.T) {
 		"release", "--dist", dist, "--signing-key", other)
 	require.NotZero(t, r.code, "a pinned build must refuse to sign with another key")
 	require.Contains(t, r.stderr, pinnedFingerprint)
-	require.NoFileExists(t, e.storePath("bootstrap", "angou-linux-amd64-0.1.0-dev"))
+	require.NoFileExists(t, e.storePath("bootstrap", e.binaryName(t, "linux-amd64")))
 
 	// The key it does trust is accepted.
 	r = runBinaryAllowFailure(t, e, strict, []string{e.recovery},

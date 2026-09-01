@@ -149,6 +149,35 @@ func TestAgentHelpDoesNotOverstateItsProtection(t *testing.T) {
 	require.NotContains(t, lower, "protects you from malware")
 }
 
+// TestAgentAcceptsTheDurationsPeopleType covers the flag at the artifact level.
+// Go's own duration syntax has no days or weeks and rejects a bare number, so
+// the obvious things to type for a session lifetime were all errors.
+func TestAgentAcceptsTheDurationsPeopleType(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+
+	for _, ttl := range []string{"3600", "99999", "1d", "2w", "10m", "1h30m"} {
+		t.Run(ttl, func(t *testing.T) {
+			// The parse happens before anything else, so a store that cannot be
+			// opened is enough to tell a flag error from a later one.
+			r := e.runNoPassphrase("agent", "start", "--ttl", ttl)
+			require.NotContains(t, r.stderr, "invalid argument",
+				"%q must be accepted as a duration", ttl)
+			require.NotContains(t, r.stderr, "is not a duration")
+		})
+	}
+
+	for _, bad := range []string{"banana", "0", "-1h"} {
+		t.Run("refuses "+bad, func(t *testing.T) {
+			r := e.runNoPassphrase("agent", "start", "--ttl", bad)
+			require.NotZero(t, r.code)
+			require.Regexp(t, `is not a duration|is not a positive duration`, r.stderr)
+			require.Contains(t, r.stderr, "30s, 10m, 2h, 1d, 2w",
+				"the refusal should show what is accepted")
+		})
+	}
+}
+
 // TestAgentRefusesASecondInstance keeps two agents from racing over one socket.
 func TestAgentRefusesASecondInstance(t *testing.T) {
 	e := newEnv(t)

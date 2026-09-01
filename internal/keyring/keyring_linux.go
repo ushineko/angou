@@ -3,9 +3,11 @@
 package keyring
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -59,6 +61,34 @@ func Open() (Keyring, error) {
 		return nil, err
 	}
 	return k, nil
+}
+
+// Available reports whether a keyring backend is present, without opening it.
+//
+// This exists because Open is not safe to use as a probe: opening a wallet can
+// raise a dialog on the user's desktop and block until it is answered, so
+// calling it merely to find out whether a keyring exists can hang a command that
+// had no need of one. This asks the bus whether kwalletd is running and nothing
+// more, under a short timeout, so it cannot prompt and cannot wait.
+func Available() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := dbus.SessionBusPrivate(dbus.WithContext(ctx))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.Auth(nil); err != nil {
+		return false
+	}
+	if err := conn.Hello(); err != nil {
+		return false
+	}
+
+	var hasOwner bool
+	err = conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.NameHasOwner", 0, kwalletService).Store(&hasOwner)
+	return err == nil && hasOwner
 }
 
 func (k *kwallet) openWallet(name string) error {

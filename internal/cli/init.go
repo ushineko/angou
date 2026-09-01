@@ -76,6 +76,13 @@ func newInitCmd() *cobra.Command {
 			}
 			fmt.Printf("Initialized store at %s\n", s.Root())
 			fmt.Printf("Identity fingerprint: %s\n", s.Fingerprint())
+
+			// Without this, every command asks for the recovery passphrase and
+			// spends a fifth of a second on it. That is the headless fallback,
+			// not the intended way to use the tool, and someone who has just
+			// made a store has no way to know there is a better one.
+			fmt.Fprintf(os.Stderr, "\nNext, so you are not asked for that passphrase again on this machine:\n"+
+				"    angou bootstrap --store %s\n", s.Root())
 			return nil
 		},
 	}

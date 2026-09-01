@@ -48,7 +48,32 @@ func unlock() (*store.Store, error) {
 		return finishUnlock(s)
 	}
 	logf("no local key on this machine; using the recovery passphrase")
-	return openWithRecovery(dir)
+	s, err := openWithRecovery(dir)
+	if err != nil {
+		return nil, err
+	}
+	suggestBootstrap(dir)
+	return s, nil
+}
+
+// suggestBootstrap points out the faster route, but only where taking it would
+// actually work.
+//
+// This machine is opening the store the slow way — a passphrase prompt and a key
+// derivation on every command — and that is the fallback for machines with no
+// keyring rather than the way the tool is meant to be used. Someone who has
+// never been told about `bootstrap` has no reason to suspect it exists. The
+// keyring is checked first so the suggestion is never made where it cannot be
+// followed.
+func suggestBootstrap(dir string) {
+	// Available, not Open. Opening a wallet can raise a dialog and wait for it,
+	// and blocking a command in order to offer advice about it would be a worse
+	// bug than the missing advice.
+	if !keyring.Available() {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "angou: this machine asks for the recovery passphrase every time. "+
+		"To stop that:\n    angou bootstrap --store %s\n", dir)
 }
 
 // unlockFromAgent takes the cached route.

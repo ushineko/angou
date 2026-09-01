@@ -14,10 +14,17 @@ import (
 type Client struct{ socket string }
 
 // Dial connects to the agent for a store, or reports ErrNoAgent.
+//
+// Being unable to work out where a socket would live — an unwritable runtime
+// directory, a path over the length limit — is reported as ErrNoAgent rather
+// than as a distinct failure. There is no agent either way, and the caller's
+// only reasonable response is the same: carry on without one. Reporting it
+// separately produced a warning about an agent refusing to serve a key on
+// machines that had never run one.
 func Dial(storeDir string) (*Client, error) {
 	socket, err := SocketPath(storeDir)
 	if err != nil {
-		return nil, err
+		return nil, ErrNoAgent
 	}
 	if _, err := os.Stat(socket); err != nil {
 		return nil, ErrNoAgent

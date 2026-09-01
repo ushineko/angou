@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.1.0-dev
+**Version**: 0.1.0
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -193,6 +193,10 @@ Write it down before you press anything else. There is no reset: the passphrase 
 only thing that opens the store on a machine that has not been set up, and if you lose
 it the contents are gone.
 
+Then run `angou bootstrap` (below). Until you do, every command asks for that
+passphrase — the name is accurate about its job, but you only meet that job on a machine
+that has not been set up yet.
+
 If you would rather choose your own, leave off `--generate` and you will be prompted.
 A passphrase that scores below 70 bits is refused rather than accepted with a warning,
 because the store is a file that other people may hold, and a passphrase they can guess
@@ -241,8 +245,9 @@ path from writing somewhere else on your disk.
 
 ### Stopping the passphrase prompts
 
-Typing the recovery passphrase for every command gets old, and it is not what it is
-for. Set the machine up once:
+**Do this once, on every machine.** Without it you type the recovery passphrase for
+every single command, which is not what that passphrase is for and is not how the tool
+is meant to be used:
 
 ```bash
 angou bootstrap
@@ -267,18 +272,35 @@ nothing. The store still works there; it just asks for the recovery passphrase.
 ### Holding the key for a while
 
 ```bash
-angou agent start --ttl 10m
+angou agent start --ttl 10m     # or 3600, or 2h, or 1d
 angou agent status
 angou agent stop
 ```
 
-The agent keeps the unlocked key behind a socket in your runtime directory so a run of
-commands does not each pay to unlock. It is worth being precise about what this buys
-you: the socket is readable only by you, which keeps out other users of the machine. It
-does not keep out anything else running as **you**. While the agent is up, any process
-under your account can ask it for the key and get it. The short lifetime is the real
-protection here, not the socket permissions, and `agent stop` releases everything
-immediately.
+**You probably do not need this if you have run `angou bootstrap`.** Measured on the
+same store:
+
+| How the store gets opened | Time per command |
+|---|---|
+| Recovery passphrase | 0.218 s |
+| Keyring, after `angou bootstrap` | 0.005 s |
+| Agent | 0.003 s |
+
+Two milliseconds is not worth anything, and you give up something to get it. The
+keyring's copy of the key stops being available when your wallet locks; the agent's does
+not, because it is sitting in a running process. Leaving an agent up permanently trades
+a boundary you had for a saving you cannot measure.
+
+Where it does earn its place is a machine with no keyring — headless, a server, or a Mac
+until the Keychain backend lands. There every command otherwise costs a passphrase
+prompt and a quarter of a second, which is the kind of friction that makes people paste
+secrets somewhere worse.
+
+Be precise about what it protects. The socket is readable only by you, which keeps out
+other users of the machine. It does not keep out anything else running as **you**: while
+the agent is up, any process under your account can ask it for the key and get it. The
+lifetime is the real protection, not the socket permissions, which is why `--ttl` exists
+and why `agent stop` is worth reaching for when you are done rather than waiting it out.
 
 ### Setting up a new machine
 
@@ -512,7 +534,7 @@ machine" cannot honestly be tested on this one.
 
 ## Changelog
 
-### 0.1.0-dev
+### 0.1.0
 
 The command line is complete: all seventeen subcommands of spec 001 are implemented,
 and every acceptance criterion in that spec is met. The desktop browser is not started.

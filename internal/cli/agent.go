@@ -19,6 +19,12 @@ func newAgentCmd() *cobra.Command {
 		Long: "There is no gpg-agent here, so without this every command unlocks the store from\n" +
 			"scratch. `angou agent start` keeps the unlocked key in memory behind a socket in\n" +
 			"your runtime directory for a bounded time.\n\n" +
+			"You probably do not need it on a machine you have bootstrapped. The keyring\n" +
+			"already opens the store there in about five milliseconds, and the agent saves two\n" +
+			"more — while giving up something real, because the keyring's copy stops being\n" +
+			"available when your wallet locks and the agent's does not. The agent is for\n" +
+			"machines with no keyring, where the alternative is typing the recovery passphrase\n" +
+			"and waiting a quarter of a second on every command.\n\n" +
 			"Be clear about what this protects you from. The socket is readable only by you,\n" +
 			"which keeps out other users on the machine. It does not keep out anything else\n" +
 			"running as you: while the agent is up, any process under your account can ask it\n" +
@@ -34,13 +40,23 @@ func newAgentCmd() *cobra.Command {
 }
 
 func newAgentStartCmd() *cobra.Command {
-	var ttl time.Duration
+	var ttlText string
 
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Unlock the store and hold it for --ttl",
-		Args:  cobra.NoArgs,
+		Long: "start unlocks the store and holds the key until --ttl runs out.\n\n" +
+			"The lifetime is the point. While the agent is up, anything running under your\n" +
+			"account can ask it for the key, so how long it runs is how long that is true.\n" +
+			"A long lifetime is your decision to make, but it is a decision rather than a\n" +
+			"detail.\n\n" +
+			"--ttl takes a number of seconds, or a number with a unit: 30s, 10m, 2h, 1d, 2w.",
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			ttl, err := parseDuration(ttlText)
+			if err != nil {
+				return err
+			}
 			dir, err := storeDir()
 			if err != nil {
 				return err
@@ -81,16 +97,27 @@ func newAgentStartCmd() *cobra.Command {
 				logf("could not lock memory (%v); key material may reach swap", err)
 			}
 
-			fmt.Printf("Holding %s for %s.\n", dir, ttl)
+			fmt.Printf("Holding %s for %s.\n", dir, describeTTL(ttl))
 			fmt.Printf("Socket: %s\n", socket)
 			fmt.Fprintln(os.Stderr, "Anything running as you can ask this agent for the key while it is up.")
+			if ttl > longTTL {
+				// Not a refusal — it is your machine — but the short lifetime is
+				// the only thing actually limiting the exposure above, so a long
+				// one should be a decision rather than a side effect.
+				fmt.Fprintf(os.Stderr, "Note: %s is long enough that the lifetime stops being much of a\n"+
+					"limit. `angou agent stop` ends it whenever you are done.\n", describeTTL(ttl))
+			}
 			return server.Serve()
 		},
 	}
-	cmd.Flags().DurationVar(&ttl, "ttl", agent.DefaultTTL,
-		"how long to hold the key before releasing it")
+	cmd.Flags().StringVar(&ttlText, "ttl", agent.DefaultTTL.String(),
+		"how long to hold the key: seconds, or a number with a unit (30s, 10m, 2h, 1d, 2w)")
 	return cmd
 }
+
+// longTTL is where holding the key stops being a convenience and starts being
+// the state the machine is normally in.
+const longTTL = 8 * time.Hour
 
 func newAgentStopCmd() *cobra.Command {
 	return &cobra.Command{

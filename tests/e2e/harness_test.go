@@ -45,6 +45,35 @@ type env struct {
 	withKeyring bool
 	// runtimeDir stands in for XDG_RUNTIME_DIR and is kept short on purpose.
 	runtimeDir string
+	// cachedVersion is the version the binary under test reports.
+	cachedVersion string
+}
+
+// version asks the binary what version it is.
+//
+// Tests that name a stashed artifact have to agree with the binary about the
+// version in its filename, and hardcoding one means every release breaks the
+// suite. Asking is also the more honest test: it checks what the artifact
+// actually claims rather than what the suite assumes.
+func (e *env) version(t *testing.T) string {
+	t.Helper()
+	if e.cachedVersion != "" {
+		return e.cachedVersion
+	}
+	out := e.mustRunNoPassphrase("--version").stdout
+	// cobra prints "angou version <version> (<commit>)".
+	fields := strings.Fields(out)
+	if len(fields) < 3 {
+		t.Fatalf("cannot read a version out of %q", out)
+	}
+	e.cachedVersion = fields[2]
+	return e.cachedVersion
+}
+
+// binaryName is the stashed filename for a platform at the version under test.
+func (e *env) binaryName(t *testing.T, platform string) string {
+	t.Helper()
+	return "angou-" + platform + "-" + e.version(t)
 }
 
 // newEnv builds the environment for one test.
