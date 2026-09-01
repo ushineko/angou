@@ -68,7 +68,9 @@ func TestRekeyIdentityRotatesKeyAndNames(t *testing.T) {
 	for path, content := range want {
 		require.Equal(t, content, e.mustRun("dec", path).stdout)
 	}
-	require.Len(t, strings.Fields(strings.TrimSpace(e.mustRun("ls").stdout)), 4)
+	// --names, because the default listing is now a table rather than one path
+	// per line.
+	require.Len(t, strings.Fields(strings.TrimSpace(e.mustRun("ls", "--names").stdout)), 4)
 }
 
 // TestOldKeyOpensNothingAfterRekey covers the verification step of R6.4.1.

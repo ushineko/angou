@@ -9,7 +9,7 @@ import (
 
 func TestRoundTrip(t *testing.T) {
 	content := []byte("FIELD_ONE=value-one\n")
-	e := New("app/.secrets.env", "text/plain", 0o600, 1756684800, content)
+	e := New("app/.secrets.env", "text/plain", 0o600, 1756684800, content, "/home/someone/app/.secrets.env")
 
 	raw, err := Marshal(e)
 	require.NoError(t, err)
@@ -18,10 +18,12 @@ func TestRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, e, got)
 	require.Equal(t, int64(len(content)), got.Size)
+	require.Equal(t, "/home/someone/app/.secrets.env", got.Origin,
+		"the recorded origin must survive the round trip; restoring depends on it")
 }
 
 func TestNewHandlesEmptyContent(t *testing.T) {
-	e := New("empty", "text/plain", 0o600, 0, nil)
+	e := New("empty", "text/plain", 0o600, 0, nil, "")
 	raw, err := Marshal(e)
 	require.NoError(t, err)
 	got, err := Unmarshal(raw)
@@ -34,7 +36,7 @@ func TestNewHandlesEmptyContent(t *testing.T) {
 // are integrity only: an attacker who authors an envelope also chooses its
 // digest, which is why the signature check upstream is the authenticity control.
 func TestUnmarshalRejectsInconsistentEnvelope(t *testing.T) {
-	valid := New("a", "text/plain", 0o600, 1, []byte("hello"))
+	valid := New("a", "text/plain", 0o600, 1, []byte("hello"), "")
 
 	cases := map[string]func(*Envelope){
 		"declared size disagrees with content": func(e *Envelope) { e.Size = 99 },

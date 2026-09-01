@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.1.2
+**Version**: 0.1.3
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -29,6 +29,9 @@ stays where you put it.*
 - [Using it](#using-it)
   - [Making a store](#making-a-store)
   - [Putting things in and getting them out](#putting-things-in-and-getting-them-out)
+  - [Putting a file back where it belongs](#putting-a-file-back-where-it-belongs)
+  - [Sweeping up what is already on the machine](#sweeping-up-what-is-already-on-the-machine)
+  - [Looking at what you have](#looking-at-what-you-have)
   - [Using the store on your other machines](#using-the-store-on-your-other-machines)
   - [Holding the key for a while](#holding-the-key-for-a-while)
   - [Setting up a new machine](#setting-up-a-new-machine)
@@ -248,12 +251,11 @@ angou enc .secrets.env                # store it under the name you typed
 angou enc ~/.ssh/id_ed25519           # an absolute path keeps its structure
 angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519   # or name it yourself
 
-angou dec work/ssh/id_ed25519          # plaintext to stdout
-angou dec .secrets.env -o /tmp/env     # or to one named file
-angou get .secrets.env --dest ~/restored   # rebuild it, mode and mtime and all
+angou dec work/ssh/id_ed25519         # put it back where it came from
+angou dec .secrets.env --stdout       # or just print it
+angou dec .secrets.env -o /tmp/env    # or write it somewhere you choose
 
-angou ls                               # what is in there
-angou ls --long                        # with sizes, modes, and times
+angou ls                              # what is in there
 angou mv old/path new/path
 angou rm work/ssh/id_ed25519
 ```
@@ -274,11 +276,80 @@ Files outside your home keep their path with the leading `/` removed. The struct
 kept rather than reduced to a filename, because a filename alone would put every
 project's `.secrets.env` on the same name and each would replace the last.
 
-`dec` writes one file where you point it. `get` rebuilds it under a directory you name
-and restores its permissions and timestamp. `get` requires `--dest` and has no default:
-the stored path decides where the write lands, anyone who can write to your store
-chooses that path, and confining it to a directory you named is what stops a stored
-path from writing somewhere else on your disk.
+### Putting a file back where it belongs
+
+`enc` records where a file was when you encrypted it. `dec` uses that: on another
+machine, `angou dec .ssh/id_ed25519` offers to put the key back in `~/.ssh` rather than
+dropping it in whatever directory you happen to be standing in. You are shown the
+destination and asked before anything is written, and asked again before an existing
+file is replaced. Permissions come back too, so a key restored over a world-readable
+file ends up `0600` again.
+
+```bash
+angou dec .ssh/id_ed25519                        # offers to restore it
+angou dec .ssh/id_ed25519 --overwrite            # replace without the second question
+angou dec .ssh/id_ed25519 --restore --overwrite  # for scripts: no questions at all
+angou dec .ssh/id_ed25519 --stdout               # never touch the disk
+```
+
+When the output is piped or redirected, the plaintext goes there and nothing is written
+to disk, so `angou dec x > file` keeps working. `--restore` asks for the file to be put
+back regardless, which is what a script wants; with nothing to answer a question it will
+restore, but it will not replace an existing file unless you also pass `--overwrite`.
+
+Acting on a location that came out of the store is only safe because every payload is
+signed. Forging that destination means forging the signature, so someone who can write
+to your store cannot use this to direct writes around your disk. A symlink at the
+destination is refused rather than written through.
+
+### Sweeping up what is already on the machine
+
+```bash
+angou enc ~ --all          # look through it, ask about each thing found
+angou enc ~ --all --auto   # take them all without asking
+```
+
+`--all` treats the argument as a directory and looks for the kinds of file credentials
+usually live in: SSH private keys, cloud and cluster credentials, `.env` files, `.netrc`,
+`.pgpass`, keys and certificates, and files whose names mention a secret. It skips public
+keys, and it does not descend into `node_modules`, `.git`, caches and the like, because a
+vendored copy of a `.env` is noise.
+
+It asks about each file by default, because the list is a guess and a guess is worth
+checking. Without a terminal to ask, it refuses rather than assuming yes — sweeping a
+home directory into a store is not something to do because nobody was there to object.
+
+**An empty result is not a clean bill of health.** The scan knows the usual names and
+places. It will miss a credential in a file it has never heard of.
+
+### Looking at what you have
+
+```bash
+angou ls           # the detailed listing
+angou ls --names   # just the paths, one per line, for scripts
+angou ls --raw     # the store as it sits on disk
+```
+
+The default listing shows permissions, size, when each file last changed, its name, and
+where it came from. It is coloured on a terminal and plain when piped, so a script never
+has to strip escapes; `--no-color` and `NO_COLOR` both turn it off. A file stored with
+permissions that let anyone but you read it is flagged, because that is worth noticing
+on the way past.
+
+`--raw` shows the store as the filesystem holds it, and needs no passphrase — these are
+the names anyone holding your store already sees:
+
+```
+SIZE  MODIFIED  NAME                              WHAT IT IS
+1.0K  just now  4sovzy6otqqah2p7644cz2w246.angou  encrypted file
+—     just now  bootstrap                         key bundle and platform binaries
+1.6K  just now  index.angou                       listing cache, rebuildable
+704B  just now  store.angou                       store metadata, holds the naming key
+```
+
+It is worth looking at once. The names give up no filenames, but the number of files,
+their sizes, and the fact that a particular one changed today are all visible to whoever
+holds the store.
 
 ### Using the store on your other machines
 
@@ -492,7 +563,7 @@ of yours and have its contents copied out.
 ### Things worth knowing
 
 Every command takes `--verbose` (`-v`), which reports what angou is doing on stderr. It
-never prints a passphrase or the contents of a file.
+never prints a passphrase, the contents of a file, or a digest of one.
 
 Opening the store costs about a quarter of a second and 96 MB of memory, once, unless
 the wallet or the agent is doing it for you. angou checks that the memory is available —
@@ -590,6 +661,29 @@ machine" cannot honestly be tested on this one.
   as a backstop, not as a plan.
 
 ## Changelog
+
+### 0.1.3
+
+- `angou enc <dir> --all` looks through a directory for the kinds of file credentials
+  live in — SSH keys, cloud and cluster credentials, `.env` files, `.netrc`, `.pgpass`,
+  keys and certificates — and offers each one. `--auto` takes them without asking. It
+  skips public keys and does not descend into `node_modules`, `.git` or caches. Without
+  a terminal to ask and without `--auto` it refuses, rather than treating silence as
+  consent. An empty result is reported as what it is: the scan knows the usual names and
+  places, not every way a secret can be written down.
+- `enc` records where a file was, and `dec` offers to put it back there. On a second
+  machine that means an SSH key returns to `~/.ssh` rather than landing wherever you are
+  standing, with its permissions intact — a key restored over a world-readable file ends
+  up `0600` again. You are asked before anything is written and again before a file is
+  replaced; `--overwrite` skips the second question and `--restore` makes it work
+  unattended. Piped output is unchanged, so `angou dec x > file` still does what it did.
+  Acting on a location out of the store is only safe because payloads are signed, and a
+  symlink at the destination is refused rather than written through.
+- `angou ls` is a detailed listing: permissions, size, age, path, and where each file
+  came from, coloured on a terminal and plain when piped. A file stored with permissions
+  that let anyone but you read it is flagged. `--names` prints just the paths for
+  scripts, and `--raw` shows the store as it sits on disk — which needs no passphrase,
+  because those are the names anyone holding your store already sees.
 
 ### 0.1.2
 

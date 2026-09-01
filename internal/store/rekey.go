@@ -73,7 +73,7 @@ func (s *Store) RekeyIdentity(recovery []byte) (*RekeyResult, error) {
 	defer func() { _ = os.RemoveAll(staged.root) }()
 
 	for _, env := range existing {
-		if _, err := staged.Put(env.Path, env.Content, env.Mode, env.MTime, env.MIME, container.EncodingArmor); err != nil {
+		if _, err := staged.PutWithOrigin(env.Path, env.Content, env.Mode, env.MTime, env.MIME, env.Origin, container.EncodingArmor); err != nil {
 			return nil, fmt.Errorf("re-encrypt %s: %w", env.Path, err)
 		}
 	}

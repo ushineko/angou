@@ -59,12 +59,15 @@ type Meta struct {
 
 // IndexEntry is one row of the listing cache.
 type IndexEntry struct {
-	Path  string   `json:"path"`
-	MIME  string   `json:"mime"`
-	Size  int64    `json:"size"`
-	MTime int64    `json:"mtime"`
-	Mode  uint32   `json:"mode"`
-	Tags  []string `json:"tags,omitempty"`
+	Path  string `json:"path"`
+	MIME  string `json:"mime"`
+	Size  int64  `json:"size"`
+	MTime int64  `json:"mtime"`
+	Mode  uint32 `json:"mode"`
+	// Origin is where the file lived on the machine that encrypted it, so a
+	// listing can show where each entry would be restored to.
+	Origin string   `json:"origin,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
 }
 
 // Index maps blob_id to entry.
@@ -295,6 +298,12 @@ func (s *Store) blobPath(id string) string {
 // second write to the same path lands on the same file and leaves no orphan
 // (R3.2).
 func (s *Store) Put(logicalPath string, content []byte, mode uint32, mtime int64, mime string, enc container.Encoding) (string, error) {
+	return s.PutWithOrigin(logicalPath, content, mode, mtime, mime, "", enc)
+}
+
+// PutWithOrigin is Put, recording where the file came from so it can be put back
+// there on another machine.
+func (s *Store) PutWithOrigin(logicalPath string, content []byte, mode uint32, mtime int64, mime, origin string, enc container.Encoding) (string, error) {
 	normalized, err := NormalizePath(logicalPath)
 	if err != nil {
 		return "", err
@@ -303,7 +312,7 @@ func (s *Store) Put(logicalPath string, content []byte, mode uint32, mtime int64
 	if err != nil {
 		return "", err
 	}
-	env := envelope.New(normalized, mime, mode, mtime, content)
+	env := envelope.New(normalized, mime, mode, mtime, content, origin)
 	raw, err := envelope.Marshal(env)
 	if err != nil {
 		return "", err
@@ -396,7 +405,7 @@ func (s *Store) Move(from, to string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.Put(normalized, env.Content, env.Mode, env.MTime, env.MIME, container.EncodingArmor); err != nil {
+	if _, err := s.PutWithOrigin(normalized, env.Content, env.Mode, env.MTime, env.MIME, env.Origin, container.EncodingArmor); err != nil {
 		return err
 	}
 	return s.Remove(from)
@@ -465,7 +474,7 @@ func (s *Store) Reindex() error {
 }
 
 func entryFromEnvelope(e envelope.Envelope) IndexEntry {
-	return IndexEntry{Path: e.Path, MIME: e.MIME, Size: e.Size, MTime: e.MTime, Mode: e.Mode}
+	return IndexEntry{Path: e.Path, MIME: e.MIME, Size: e.Size, MTime: e.MTime, Mode: e.Mode, Origin: e.Origin}
 }
 
 func (s *Store) writeIndex() error {
