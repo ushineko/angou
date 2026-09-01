@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,4 +60,30 @@ func TestInitNoBootstrapOptsOut(t *testing.T) {
 	require.NotContains(t, r.stderr, "No keyring is available",
 		"opting out should not report a keyring problem it never looked for")
 	require.False(t, localkey.Exists(e.store))
+}
+
+// TestInitRefusesAnExistingStoreWithoutAsking covers the ordering, not just the
+// refusal.
+//
+// init used to prompt for a "new recovery passphrase" and only then report that
+// the store already existed. Asking that question of someone who already has a
+// store reads as though the store is about to be replaced, which is alarming and
+// is not what would have happened. The check belongs before the prompt.
+func TestInitRefusesAnExistingStoreWithoutAsking(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+
+	before := blobDigests(t, e)
+
+	// No passphrase source at all: if init prompted, it would fail complaining
+	// about that rather than about the store, and this would catch it.
+	r := e.runNoPassphrase("init")
+	require.NotZero(t, r.code)
+	require.Contains(t, r.stderr, "already holds a store")
+	require.Contains(t, r.stderr, "angou bootstrap")
+	require.NotContains(t, strings.ToLower(r.stderr), "passphrase source",
+		"init must decide before asking for anything")
+	require.NotContains(t, strings.ToLower(r.stderr), "new recovery passphrase")
+
+	require.Equal(t, before, blobDigests(t, e), "nothing may change")
 }

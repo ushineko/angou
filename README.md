@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.1.0
+**Version**: 0.1.1
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -585,6 +585,47 @@ machine" cannot honestly be tested on this one.
   as a backstop, not as a plan.
 
 ## Changelog
+
+### 0.1.1
+
+Fixes for the first-run experience, all of them found by using the tool rather than by
+testing it. Each was a case where the program worked and the path through it did not.
+
+- `angou init` now sets up the machine it runs on. It previously created a store and
+  left that machine unable to open it without the recovery passphrase, so every command
+  asked for one — contradicting this document, which says you type that passphrase when
+  setting up a machine "and almost never otherwise". Requiring a separate
+  `angou bootstrap` afterwards asked for the same passphrase that had just been used, to
+  perform a step with no separate decision in it. `--no-bootstrap` opts out.
+- `angou enc ~/.secrets.env` worked. The shell expands the tilde before angou sees it,
+  and absolute paths were refused, so the most natural invocation there is did not work.
+  Absolute paths now map into the store's namespace, keeping their structure so two
+  files of the same name from different projects still do not collide.
+- `--ttl` accepts the durations people type. Go's own syntax has no unit above hours and
+  rejects a bare number, so `3600`, `1d`, `1w` and `99999` were all errors.
+- `install.sh --publish-to=STORE` puts signed binaries and the installer into a store, so
+  a machine with no angou can install one from it. The installer also offers this when it
+  notices a store that carries no binaries. It asks rather than assuming: publishing
+  creates a release-signing key, and that key decides which binaries every future
+  bootstrap accepts.
+- `angou doctor` reports the version floor and what the bootstrap namespace holds, and
+  says what to do about each. It no longer refuses to run when this binary is below the
+  store's version floor — that is the situation someone runs it to diagnose.
+- `angou init` refuses a directory that already holds a store *before* asking for a
+  passphrase. Asking for a "new recovery passphrase" and only then reporting that the
+  store exists reads as though the store is about to be replaced. It never was — `init`
+  refuses before generating a key or writing anything — but the ordering was alarming
+  for no reason.
+- `install.sh` no longer tells you to run `angou init` after it has just set up the
+  store you already had. Its closing advice now depends on what it actually did.
+- A keyring that holds its D-Bus name without answering no longer hangs every command.
+  The call that asks which wallet to use is bounded at five seconds — it reports a name
+  and prompts for nothing, so it has no business being slow — and a broken keyring
+  degrades to the recovery-passphrase path with an accurate reason. Opening a wallet
+  stays unbounded, because that can legitimately wait for a person to answer a dialog.
+- Decrypting on a machine other than the one that encrypted is the point of the store,
+  and now has tests: a second machine with its own home, its own store path, no local
+  key and no keyring reads what the first one wrote, and writes back.
 
 ### 0.1.0
 

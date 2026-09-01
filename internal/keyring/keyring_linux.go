@@ -51,7 +51,15 @@ func Open() (Keyring, error) {
 
 	name := os.Getenv(WalletEnv)
 	if name == "" {
-		if err := object.Call(kwalletInterface+".localWallet", 0).Store(&name); err != nil {
+		// Bounded, because this call has no reason to be slow: it reports a
+		// name, prompts for nothing, and touches no wallet. A kwalletd that
+		// holds the bus name without answering — wedged, or mid-crash — would
+		// otherwise hang every angou command for the D-Bus default timeout, and
+		// "the keyring is broken" should degrade to the no-keyring path rather
+		// than to a hang.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := object.CallWithContext(ctx, kwalletInterface+".localWallet", 0).Store(&name); err != nil {
 			return nil, fmt.Errorf("%w: kwalletd6 is not answering: %w", ErrUnavailable, err)
 		}
 	}
@@ -92,6 +100,11 @@ func Available() bool {
 }
 
 func (k *kwallet) openWallet(name string) error {
+	// Deliberately unbounded. Opening a wallet can put a dialog on the user's
+	// desktop and wait for them to answer it, which is correct behaviour and can
+	// legitimately take as long as a person takes. The bounded check is in Open,
+	// on a call that should never be slow.
+	//
 	// wId 0 means "no parent window": KWallet decides how to prompt.
 	if err := k.object.Call(kwalletInterface+".open", 0, name, int64(0), appID).Store(&k.handle); err != nil {
 		return fmt.Errorf("%w: open wallet %q: %w", ErrUnavailable, name, err)

@@ -16,6 +16,7 @@ SIGNING_KEY="${HOME}/.config/angou/release-signing.asc"
 DRY_RUN=0
 WITH_GUI=0
 PUBLISH_TO=""
+SET_UP_EXISTING=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
@@ -134,6 +135,36 @@ else
     cat "${REPO_DIR}/packaging/magic" >> "${HOME}/.magic"
 fi
 
+# A store that exists but has not been set up on this machine asks for the
+# recovery passphrase on every command. `angou init` does this for a store it
+# creates, but a store made earlier, or synced here from elsewhere, has nobody to
+# do it — and the user has no reason to know the step exists.
+if [ "$DRY_RUN" -eq 0 ] && [ -n "${ANGOU_STORE:-}" ] && [ -f "${ANGOU_STORE}/store.angou" ]; then
+    if "${BIN_DIR}/angou" doctor --store "$ANGOU_STORE" 2>/dev/null | grep -q "local key:.*absent"; then
+        echo
+        echo "The store at ${ANGOU_STORE} is not set up on this machine, so every command"
+        echo "asks for your recovery passphrase. Setting it up puts a machine password in"
+        echo "your keyring and stops the prompts."
+        echo
+        if [ -t 0 ]; then
+            printf "Set it up now? You will be asked for the recovery passphrase once. [Y/n] "
+            read -r reply
+            case "$reply" in
+                [Nn]*) echo "Skipped. Run: angou bootstrap --store ${ANGOU_STORE}" ;;
+                *) if "${BIN_DIR}/angou" bootstrap --store "$ANGOU_STORE"; then
+                    SET_UP_EXISTING=1
+                else
+                    echo "Setup did not complete. You can retry with:" >&2
+                    echo "  angou bootstrap --store ${ANGOU_STORE}" >&2
+                fi ;;
+            esac
+        else
+            echo "Not asking, because this is not an interactive shell."
+            echo "Run: angou bootstrap --store ${ANGOU_STORE}"
+        fi
+    fi
+fi
+
 # If a store is already there and carries no binaries, offer rather than require
 # the user to have known about --publish-to. Asked, not assumed: it creates a
 # signing key, and that is a decision rather than a detail.
@@ -195,13 +226,26 @@ case ":${PATH}:" in
     *":${BIN_DIR}:"*) ;;
     *) echo "Note: ${BIN_DIR} is not on your PATH." ;;
 esac
-echo "Next:"
-echo
-echo "  angou init ~/Dropbox/angou"
-echo
-echo "That makes a store, shows you a recovery passphrase once, and sets this machine"
-echo "up so you are not asked for it again here. On any other machine, once the store"
-echo "has synced there, run: angou bootstrap --store ~/Dropbox/angou"
+if [ "$SET_UP_EXISTING" -eq 1 ]; then
+    echo "This machine is set up for ${ANGOU_STORE}. Nothing else to do:"
+    echo "commands will not ask for your recovery passphrase here."
+    echo
+    echo "  angou ls        # what is in the store"
+    echo "  angou doctor    # what this machine can and cannot do"
+elif [ -n "${ANGOU_STORE:-}" ] && [ -f "${ANGOU_STORE}/store.angou" ]; then
+    echo "Your store at ${ANGOU_STORE} already exists. To set this machine up to"
+    echo "open it without the recovery passphrase:"
+    echo
+    echo "  angou bootstrap --store ${ANGOU_STORE}"
+else
+    echo "Next:"
+    echo
+    echo "  angou init ~/Dropbox/angou"
+    echo
+    echo "That makes a store, shows you a recovery passphrase once, and sets this machine"
+    echo "up so you are not asked for it again here. On any other machine, once the store"
+    echo "has synced there, run: angou bootstrap --store ~/Dropbox/angou"
+fi
 
 if [ -n "$PUBLISH_TO" ]; then
     echo

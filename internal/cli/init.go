@@ -36,6 +36,15 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Checked before anything is asked. Prompting for a "new recovery
+			// passphrase" and only then reporting that the store already exists
+			// reads as though the store is about to be replaced, which is
+			// alarming and wrong.
+			if store.Exists(dir) {
+				return fmt.Errorf("%s already holds a store, so there is nothing to initialize.\n"+
+					"To set this machine up to open it:   angou bootstrap --store %s\n"+
+					"To see what this machine can do:     angou doctor --store %s", dir, dir, dir)
+			}
 
 			var (
 				secret    []byte

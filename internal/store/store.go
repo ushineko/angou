@@ -153,6 +153,12 @@ func Init(root string, recovery []byte) (*Store, error) {
 	return s, nil
 }
 
+// Exists reports whether a directory already holds a store.
+func Exists(root string) bool {
+	_, err := os.Stat(filepath.Join(root, MetaName))
+	return err == nil
+}
+
 // ExportIdentity returns the serialized identity from whichever key bundle opens
 // this store. Bootstrap needs the bytes, not just a usable identity, because it
 // re-wraps them under the unlock passphrase.
