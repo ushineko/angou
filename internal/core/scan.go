@@ -1,4 +1,4 @@
-package cli
+package core
 
 import (
 	"fmt"
@@ -18,8 +18,13 @@ const maxScanSize = 1 << 20 // 1 MiB
 // of source checkouts and caches.
 const scanDepth = 4
 
-// candidate is a file the scanner thinks is worth encrypting.
-type candidate struct {
+// Candidate is a file the scan flagged, with the reason it did.
+//
+// The reason is the point. The scan is a guess, and the only way to find out
+// whether it is a good one on a particular machine is to look at what it picked
+// and why -- a rule that is right about SSH keys can still be wrong about a
+// directory full of session files whose names end in .key.
+type Candidate struct {
 	Path   string
 	Reason string
 	Size   int64
@@ -205,14 +210,18 @@ var skipDirs = map[string]bool{
 	".pyenv": true, ".nvm": true, ".sdkman": true, ".goenv": true,
 }
 
-// scanForSecrets walks a directory and returns what looks worth encrypting.
-func scanForSecrets(root string) ([]candidate, error) {
+// Scan walks a directory and returns what looks worth encrypting.
+// Scan walks a directory for files that look like credentials.
+//
+// An empty or short result is not an assurance: it knows the usual names and
+// places, not every way a secret can be written down.
+func Scan(root string) ([]Candidate, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve %s: %w", root, err)
 	}
 
-	var found []candidate
+	var found []Candidate
 	err = filepath.WalkDir(rootAbs, func(path string, d fs.DirEntry, walkErr error) error {
 		// An unreadable directory is not a reason to abandon a scan whose whole
 		// purpose is to look around and report what it can see. Returning the
@@ -249,7 +258,7 @@ func scanForSecrets(root string) ([]candidate, error) {
 			return nil
 		}
 		if reason, ok := looksSecret(path, d.Name()); ok {
-			found = append(found, candidate{Path: path, Reason: reason, Size: info.Size()})
+			found = append(found, Candidate{Path: path, Reason: reason, Size: info.Size()})
 		}
 		return nil
 	})

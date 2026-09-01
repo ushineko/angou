@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ushineko/angou/internal/container"
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/store"
 )
 
@@ -130,7 +131,7 @@ func listDetailed(entries []store.IndexEntry, colour bool) error {
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			paint(colour, modeColour(e.Mode), formatMode(e.Mode)),
-			paint(colour, cGreen, humanSize(e.Size)),
+			paint(colour, cGreen, core.HumanSize(e.Size)),
 			paint(colour, cDim, formatAge(e.MTime)),
 			paint(colour, colourFor(e.Path), e.Path),
 			paint(colour, cDim, shortenHome(origin)),
@@ -138,7 +139,7 @@ func listDetailed(entries []store.IndexEntry, colour bool) error {
 	}
 	_, _ = fmt.Fprintf(w, "\n%s\t%s\t\t\t\n",
 		paint(colour, cBold, fmt.Sprintf("%d files", len(entries))),
-		paint(colour, cBold, humanSize(total)))
+		paint(colour, cBold, core.HumanSize(total)))
 	return nil
 }
 
@@ -177,7 +178,7 @@ func listRaw() error {
 		if kind == "encrypted file" {
 			blobs++
 		}
-		size := humanSize(info.Size())
+		size := core.HumanSize(info.Size())
 		if de.IsDir() {
 			size = "—"
 		}

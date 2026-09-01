@@ -1,4 +1,4 @@
-package cli
+package core
 
 import (
 	"os"
@@ -144,7 +144,7 @@ func TestScanSkipsNoiseAndBulk(t *testing.T) {
 	write("empty.pem", 0)
 	write("deep/one/two/three/four/five/.env", 10)
 
-	found, err := scanForSecrets(root)
+	found, err := Scan(root)
 	require.NoError(t, err)
 
 	var names []string
@@ -154,7 +154,7 @@ func TestScanSkipsNoiseAndBulk(t *testing.T) {
 		names = append(names, rel)
 	}
 	require.Equal(t, []string{".env"}, names,
-		"only the real candidate should be offered; got %v", names)
+		"only the real Candidate should be offered; got %v", names)
 }
 
 // TestScanIgnoresSymlinks covers the one that matters for a store: a symlink is
@@ -166,21 +166,14 @@ func TestScanIgnoresSymlinks(t *testing.T) {
 	require.NoError(t, os.WriteFile(outside, []byte("-----BEGIN PRIVATE KEY-----\n"), 0o600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "link.pem")))
 
-	found, err := scanForSecrets(root)
+	found, err := Scan(root)
 	require.NoError(t, err)
 	require.Empty(t, found, "a symlink is not a file to encrypt")
 }
 
 func TestHumanSize(t *testing.T) {
-	require.Equal(t, "0B", humanSize(0))
-	require.Equal(t, "512B", humanSize(512))
-	require.Equal(t, "1.0K", humanSize(1024))
-	require.Equal(t, "1.5M", humanSize(1024*1024*3/2))
-}
-
-func TestFormatMode(t *testing.T) {
-	require.Equal(t, "rw-------", formatMode(0o600))
-	require.Equal(t, "rw-r--r--", formatMode(0o644))
-	require.Equal(t, "rwxr-xr-x", formatMode(0o755))
-	require.Equal(t, "---------", formatMode(0))
+	require.Equal(t, "0B", HumanSize(0))
+	require.Equal(t, "512B", HumanSize(512))
+	require.Equal(t, "1.0K", HumanSize(1024))
+	require.Equal(t, "1.5M", HumanSize(1024*1024*3/2))
 }
