@@ -594,13 +594,12 @@ being killed part-way through.
 
 ## Usage (GUI)
 
-> **Status**: the GUI is under development and is not part of a release yet. What ships
-> today is the prototype — every screen described below is present and navigable, but
-> the operations behind them are not wired up, and it reports as much rather than
-> appearing to act. The CLI is complete and is what this version is for.
+> **Status**: the GUI is not part of a release yet. Every operation is wired to the same
+> code the CLI runs, and a parity test fails the build if either front end grows an
+> operation the other lacks — but it has had far less use than the CLI, and the CLI is
+> what this version is for.
 
-`angou-gui` is a desktop front end over the same store. It is built to do everything
-the CLI does — the two are kept in step deliberately, and neither is allowed a
+`angou-gui` is a desktop front end over the same store. It does everything the CLI does — the two are kept in step deliberately, and neither is allowed a
 capability the other lacks. It is a separate program from the CLI and is never needed
 to set a machine up or to recover one.
 
@@ -631,16 +630,19 @@ One caveat specific to the GUI: text typed into a field is held in a Go string, 
 cannot be overwritten afterwards. The CLI's terminal read is better in this respect.
 Neither is a guarantee — see **Safety** below.
 
-![The Store section: a sortable table of what the store holds, sorted by path — aws/credentials, db/prod.pgpass, gnupg/secring.gpg, kube/config, notes/recovery-plan.md, ssh/id_ed25519 and its .pub, and vpn/work.ovpn — with size, encoding (armor or binary), age, and the origin each was taken from, one showing "none recorded". A toolbar above offers Encrypt file, Scan directory, Reindex, Prune and Clone; the Decrypt, Extract, Rename and Remove buttons below are greyed out until a row is selected.](assets/screenshot-store.png)
+![The Store section: a sortable table of four stored files — demo/credentials, demo/id_ed25519, demo/prod.env and demo/work.ovpn — each with its size, POSIX mode, age, and the path it was encrypted from. A toolbar offers Encrypt file, Scan directory, Refresh, Reindex, Prune and Clone; the Decrypt, Extract, Rename and Remove buttons along the bottom are greyed out until a row is selected. The status bar reads: store, the directory; unlocked by an agent session; agent, session 9m58s remaining.](assets/screenshot-store.png)
 
-![The Encrypt section: a directory scan of /home/example listing eleven candidates, each with the reason it was flagged — "OpenSSH private key header" for id_rsa and id_ecdsa, "contains a base64 auth field" for .docker/config.json, "name matches netrc", "name matches *credentials*.json". Seven of eleven are ticked; ~/.ssh/known_hosts is left unticked, and ~/.aws/credentials is unticked and disabled with the note "already in the store". Scan is a dry run; Encrypt selected sits apart at the bottom.](assets/screenshot-encrypt.png)
+![The Encrypt section: a scan of a directory listing five candidates, each with the reason it was flagged — "AWS credentials" for .aws/credentials, "netrc credentials" for .netrc, "SSH private key" for both .ssh/id_ecdsa and .ssh/id_rsa, and "environment file" for projects/api/.env. All five are ticked, and the count reads "5 of 5 selected". A .env.example file in the same tree was not flagged. Scan is a dry run; Encrypt selected sits apart at the bottom.](assets/screenshot-encrypt.png)
 
-![The Doctor section: findings grouped by subject with a status marker on each row. Store shows the directory, format ANGOU1, eight blobs, and a green tick for an index consistent with the blobs. This machine shows green ticks for a present local key, the KWallet backend, its keyring entry, and a running agent, with the note "This machine opens the store without the recovery passphrase." A superseded-key assertion field sits below the report.](assets/screenshot-doctor.png)
+![The Doctor section: findings grouped by subject with a status marker on each row. Store shows the directory and a green tick for the store being present. Key bundle shows argon2id m=64 MiB t=24 p=4, with green ticks for parameters meeting the pinned floor and memory being sufficient. This machine shows an orange warning — "local key: absent — this machine asks for the recovery passphrase" — followed by "to change that: run `angou bootstrap`". Keyring is reachable, with its entry not applicable until the machine is bootstrapped. A superseded-key assertion field sits below the report.](assets/screenshot-doctor.png)
 
-![The Machine section in three parts. Routine: set this machine up, change the machine password, change the recovery passphrase. Session cache: the agent, marked as unnecessary on this machine and there for machines with no keyring, showing a running session with 7m12s remaining and its socket path. Irreversible, with buttons in red: forget this machine, and rotate the store identity — each stating what it costs, including that forgetting loses access if the recovery passphrase is gone.](assets/screenshot-machine.png)
+![The Machine section in three parts. Routine: set this machine up, change the machine password, change the recovery passphrase. Session cache: the agent, described as unnecessary on a machine that already holds a local key and there for machines with no keyring, with its state and socket path. Irreversible, with buttons in red: forget this machine, and rotate the store identity — each stating what it costs, including that forgetting loses access if the recovery passphrase is gone.](assets/screenshot-machine.png)
 
 The screenshots are captured by `tools/screenshot.sh --all`, which drives the window
-itself rather than relying on anyone clicking through it.
+itself rather than relying on anyone clicking through it. It builds its own throwaway
+store to photograph, with obviously invented contents, and never opens the one you use:
+a store's listing is a list of where you keep your credentials, and these images are
+published.
 
 ## Project layout
 

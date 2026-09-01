@@ -137,6 +137,7 @@ type Options struct {
 	Version string
 	Section string // navigation entry to open on; empty means the first
 	Scheme  string // color scheme to force; empty means the saved one
+	Scan    string // directory to scan on startup; empty scans nothing
 }
 
 // Run opens the window and blocks until it is closed.
@@ -221,6 +222,21 @@ func Run(o Options) {
 
 	u.win.Resize(fyne.NewSize(1180, 760))
 	u.nav.Select(sectionIndex(secs, o.Section))
+	u.loadAgent() // the status bar names it, so it is not the Machine section's to fetch
+
+	// R5.10: with no store configured, open on setup rather than on an empty
+	// table full of errors about a directory that was never chosen. Deferred
+	// until the window is up, because a dialog has nowhere to appear before
+	// then.
+	if u.storeDir() == "" {
+		go func() { fyne.Do(u.firstRun) }()
+	}
+	if o.Scan != "" {
+		// For captures: the Encrypt section is a list of what a scan found, and
+		// a screenshot of it with nothing found shows nothing worth showing.
+		u.scanRoot = o.Scan
+		u.startScan(o.Scan)
+	}
 	u.win.SetMaster()
 	u.win.ShowAndRun()
 }

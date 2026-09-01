@@ -24,6 +24,12 @@
 set -euo pipefail
 
 CLASS="io.ushineko.angou"
+# Everything the captures show comes from a store this script builds and throws
+# away. It must never photograph the developer's own: these images go into a
+# public README, and a store's listing is a list of where that person keeps
+# their credentials. HOME and the XDG directories are redirected too, so the
+# window cannot reach a remembered store either.
+DEMO=""
 BIN="${ANGOU_GUI:-$(command -v angou-gui || echo ./angou-gui)}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -83,7 +89,7 @@ python3 -c "import PIL" 2>/dev/null || { echo "python3 Pillow is not installed" 
 # Starting fresh per shot rather than reusing one window keeps each image independent
 # of whatever the previous one left selected.
 capture() {
-    local sect="$1" dest="$2"
+    local sect="$1" dest="$2" scan="${3:-}"
 
     # Wait for any previous instance to be gone before starting the next. Two windows of
     # the same class at once means `search --class | head -1` can return the one that is
@@ -95,7 +101,15 @@ capture() {
         gone=$((gone + 1))
     done
 
-    "$BIN" --section "$sect" ${scheme:+--scheme "$scheme"} >/dev/null 2>&1 &
+    # HOME and the XDG config/data directories are redirected so the window
+    # cannot reach a remembered store. XDG_RUNTIME_DIR is deliberately NOT:
+    # that is where the Wayland display socket lives, and pointing it at a
+    # temporary directory leaves the window unable to reach the compositor at
+    # all, which looks exactly like the window failing to start.
+    ANGOU_STORE="$DEMO/store" HOME="$DEMO/home" \
+        XDG_CONFIG_HOME="$DEMO/home/.config" XDG_DATA_HOME="$DEMO/home/.local/share" \
+        "$BIN" --section "$sect" ${scheme:+--scheme "$scheme"} \
+        ${scan:+--scan "$scan"} >/dev/null 2>&1 &
     local pid=$!
     # shellcheck disable=SC2064  # pid is captured deliberately, at trap-set time
     trap "kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true" RETURN
@@ -176,15 +190,78 @@ print("  %s  %dx%d  %.0fK" % (os.path.basename(p), im.width, im.height,
 PY
 }
 
+# demo builds the store the captures are taken against, seeds it with obviously
+# invented content, and opens it with an agent.
+#
+# An agent rather than bootstrap: bootstrapping writes an entry into the
+# developer's real wallet, which the project's testing rules forbid, and without
+# some unlocked route the window would sit on a passphrase dialog. The agent's
+# socket lives in the throwaway runtime directory and dies with the store.
+demo() {
+    DEMO=$(mktemp -d)
+    mkdir -p "$DEMO/home/.config" "$DEMO/home/.local/share" "$DEMO/run" "$DEMO/scan/.ssh" \
+        "$DEMO/scan/.aws" "$DEMO/scan/projects/api"
+
+    # Per-run, from a CSPRNG. No credential-shaped constant is committed, not
+    # even for a screenshot.
+    head -c 32 /dev/urandom | base64 | tr -d '\n' > "$DEMO/pw"
+
+    local ang; ang=$(dirname "$BIN")/angou
+    [ -x "$ang" ] || ang="$REPO_DIR/angou"
+    [ -x "$ang" ] || { echo "the CLI is not built (make build-static)" >&2; exit 1; }
+
+    # The agent's socket name is derived from the store path, so a throwaway
+    # store gets its own socket in the real runtime directory and cannot
+    # collide with one the developer is using.
+    run_angou() { HOME="$DEMO/home" \
+        sh -c 'exec 9<"$1"; shift; exec "$@" --passphrase-fd 9' _ "$DEMO/pw" "$ang" "$@"; }
+
+    run_angou init --no-bootstrap --store "$DEMO/store" >/dev/null 2>&1
+
+    # Content that is plainly invented: nothing here is a key, and the bodies say so.
+    printf 'this is not a private key, it is screenshot filler\n' > "$DEMO/home/id_ed25519"
+    printf 'not credentials either\n' > "$DEMO/home/credentials"
+    printf 'PLACEHOLDER=not-a-real-value\n' > "$DEMO/home/prod.env"
+    printf 'nothing secret in here\n' > "$DEMO/home/work.ovpn"
+    for f in id_ed25519 credentials prod.env work.ovpn; do
+        run_angou enc "$DEMO/home/$f" --as "demo/$f" --store "$DEMO/store" >/dev/null 2>&1
+    done
+
+    # A tree for the Encrypt section to find something in.
+    printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\nnot a key\n' > "$DEMO/scan/.ssh/id_rsa"
+    printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\nnot a key\n' > "$DEMO/scan/.ssh/id_ecdsa"
+    printf 'aws_access_key_id = PLACEHOLDER\n' > "$DEMO/scan/.aws/credentials"
+    printf 'API_TOKEN=placeholder\n' > "$DEMO/scan/projects/api/.env"
+    printf 'API_TOKEN=your-token-here\n' > "$DEMO/scan/projects/api/.env.example"
+    printf 'machine example.com login placeholder\n' > "$DEMO/scan/.netrc"
+
+    HOME="$DEMO/home" \
+        sh -c 'exec 9<"$1"; shift; exec "$@" --passphrase-fd 9' _ "$DEMO/pw" \
+        "$ang" agent start --ttl 10m --store "$DEMO/store" >/dev/null 2>&1 &
+    sleep 2
+}
+
+demo_cleanup() {
+    [ -n "$DEMO" ] || return 0
+    HOME="$DEMO/home" "$REPO_DIR/angou" agent stop --store "$DEMO/store" >/dev/null 2>&1 || true
+    rm -rf "$DEMO"
+}
+
 if [ "$all" -eq 1 ]; then
     # Force a scheme unless one was asked for. Without this the set inherits
     # whatever the person running it last picked in Appearance, so two refreshes
     # on two machines produce differently-coloured images for no reason.
     : "${scheme:=Breeze Dark}"
     mkdir -p "${REPO_DIR}/assets"
+    demo
+    trap demo_cleanup EXIT
     for s in Store Encrypt Doctor Machine; do
         low=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')
-        capture "$s" "${REPO_DIR}/assets/screenshot-${low}.png"
+        if [ "$s" = "Encrypt" ]; then
+            capture "$s" "${REPO_DIR}/assets/screenshot-${low}.png" "$DEMO/scan"
+        else
+            capture "$s" "${REPO_DIR}/assets/screenshot-${low}.png"
+        fi
     done
     echo
     echo "Now check the alt text in README.md still describes what is in each image."
@@ -193,4 +270,6 @@ fi
 
 [ -n "$out" ] || { usage >&2; exit 2; }
 [ -n "$section" ] || { echo "--section is required (or use --all)" >&2; exit 2; }
-capture "$section" "$out"
+demo
+trap demo_cleanup EXIT
+capture "$section" "$out" "$DEMO/scan"

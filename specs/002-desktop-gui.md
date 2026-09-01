@@ -1,8 +1,8 @@
 # 002 — angou: desktop GUI
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
-Implementation proceeds in passes.
+Implementation proceeded in three passes.
 
 - **Pass 1** picked the toolkit, fixed the architecture that keeps the two front ends in
   sync, and delivered a navigable prototype driven by fixture data so the look and feel
@@ -29,8 +29,14 @@ Implementation proceeds in passes.
   The claim that behaviour is unchanged is checked by `tools/regress.sh`, which diffs the
   binary against a baseline commit, not only by the suite. That distinction was earned:
   the first slice reordered two `--verbose` lines and every test stayed green.
-- **Pass 3 (next)** wires the GUI to the core, command by command, and lands the parity
-  test.
+- **Pass 3** wired the GUI to the core and landed the parity test. Complete.
+
+  Several requirements were added during the pass, all of them found by using the window
+  rather than by planning it: the store picker of R5A.6, the progress indicator of R3.4.1
+  and its placement in R3.4.2, and the reload rule of R5.3.1. Two of the bugs behind them
+  were caused by earlier fixes in the same pass — the flag that stopped an empty store
+  reloading forever also stopped it reloading at all — which is the argument for the
+  parity test and the regression script rather than for careful review.
 
 ---
 
@@ -410,15 +416,15 @@ server. A GUI test that requires one is skipped there, not failed.
 
 ### Pass 3 — wiring
 
-- [ ] Every operation of R4.1 is wired and works against a real store.
-- [ ] The parity test of R4.3 exists, passes, and fails when a command is added without
+- [x] Every operation of R4.1 is wired and works against a real store.
+- [x] The parity test of R4.3 exists, passes, and fails when a command is added without
       a GUI action.
-- [ ] Destructive confirmations of R6 are in place for every operation listed there.
-- [ ] Passphrase handling meets R7; the buffer-zeroing path is covered by a test.
-- [ ] `README.md` documents the GUI, its runtime dependencies, and the R7.3 limitation.
-- [ ] `install.sh` and `uninstall.sh` handle the GUI and its desktop entry, and are
+- [x] Destructive confirmations of R6 are in place for every operation listed there.
+- [x] Passphrase handling meets R7; the buffer-zeroing path is covered by a test.
+- [x] `README.md` documents the GUI, its runtime dependencies, and the R7.3 limitation.
+- [x] `install.sh` and `uninstall.sh` handle the GUI and its desktop entry, and are
       idempotent.
-- [ ] `make test`, `make e2e`, and `make lint` pass.
+- [x] `make test`, `make e2e`, and `make lint` pass.
 
 ---
 

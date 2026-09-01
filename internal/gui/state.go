@@ -169,6 +169,11 @@ func (u *ui) invalidate() {
 	u.entriesOK = false
 	u.doctorOK = false
 	u.agentOK = false
+	// The agent state is fetched here rather than left to a section, because
+	// the status bar reports it from every section. Left to the Machine section
+	// to load, the bar said "no session" everywhere else — next to "unlocked by
+	// an agent session", which is the same bar contradicting itself.
+	u.loadAgent()
 	u.rebuild()
 }
 
@@ -441,5 +446,51 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 		}
 		fyne.Do(func() { u.setStoreDir(dir) })
 		u.ok("Created the store at " + dir + " and set this machine up.")
+	}()
+}
+
+// startScan walks a directory for credentials and fills the Encrypt list.
+//
+// Separate from the button that usually starts it so a capture can drive it
+// too: the Encrypt section is a list of what a scan found, and photographing it
+// with nothing found shows nothing worth showing.
+func (u *ui) startScan(root string) {
+	u.scanning = true
+	u.refresh()
+	go func() {
+		done := u.busy("Scanning for credentials…")
+		defer func() {
+			done()
+			fyne.Do(func() {
+				u.scanning = false
+				u.refresh()
+			})
+		}()
+
+		found, err := core.Scan(root)
+		if err != nil {
+			u.report("Scan", err)
+			return
+		}
+		out := make([]ScanCandidate, 0, len(found))
+		for _, c := range found {
+			sc := ScanCandidate{Path: c.Path, Reason: c.Reason, Size: c.Size, Selected: true}
+			if _, err := core.StoredAs(c.Path); err != nil {
+				// A file the store cannot name is shown with the reason rather
+				// than silently dropped, and cannot be selected.
+				sc.Reason = c.Reason + " — cannot be stored: " + err.Error()
+				sc.Selected, sc.Stored = false, true
+			}
+			out = append(out, sc)
+		}
+		fyne.Do(func() {
+			u.candidates = out
+			if len(out) == 0 {
+				u.flash("Nothing under "+root+" looked like a credential. That is not an "+
+					"assurance: the scan knows the usual names and places, not every way a "+
+					"secret can be written down.", StatusInfo)
+			}
+			u.refresh()
+		})
 	}()
 }

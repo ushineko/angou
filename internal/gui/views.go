@@ -346,46 +346,8 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 	// The dry run is the default and costs nothing. Encrypting is the second,
 	// explicit step (R5.4).
 	scan := widget.NewButtonWithIcon("Scan (dry run)", theme.SearchIcon(), func() {
-		root := dir.Text
-		u.scanRoot = root
-		u.scanning = true
-		u.refresh()
-		go func() {
-			done := u.busy("Scanning for credentials…")
-			defer func() {
-				done()
-				fyne.Do(func() {
-					u.scanning = false
-					u.refresh()
-				})
-			}()
-
-			found, err := core.Scan(root)
-			if err != nil {
-				u.report("Scan", err)
-				return
-			}
-			out := make([]ScanCandidate, 0, len(found))
-			for _, c := range found {
-				sc := ScanCandidate{Path: c.Path, Reason: c.Reason, Size: c.Size, Selected: true}
-				if _, err := core.StoredAs(c.Path); err != nil {
-					// A file the store cannot name is shown with the reason
-					// rather than silently dropped, and cannot be selected.
-					sc.Reason = c.Reason + " — cannot be stored: " + err.Error()
-					sc.Selected, sc.Stored = false, true
-				}
-				out = append(out, sc)
-			}
-			fyne.Do(func() {
-				u.candidates = out
-				if len(out) == 0 {
-					u.flash("Nothing under "+root+" looked like a credential. That is not an "+
-						"assurance: the scan knows the usual names and places, not every way a "+
-						"secret can be written down.", StatusInfo)
-				}
-				u.refresh()
-			})
-		}()
+		u.scanRoot = dir.Text
+		u.startScan(dir.Text)
 	})
 	scan.Importance = widget.HighImportance
 	if u.scanning {

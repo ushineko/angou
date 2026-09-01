@@ -25,6 +25,8 @@ func main() {
 		"open on this section: "+strings.Join(gui.SectionNames(), ", "))
 	scheme := flag.String("scheme", "",
 		"use this colour scheme for this run without saving it: "+strings.Join(gui.SchemeNames(), ", "))
+	scan := flag.String("scan", "",
+		"scan this directory on startup, for documentation captures")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -33,5 +35,5 @@ func main() {
 		os.Exit(0)
 	}
 
-	gui.Run(gui.Options{Version: buildinfo.Version, Section: *section, Scheme: *scheme})
+	gui.Run(gui.Options{Version: buildinfo.Version, Section: *section, Scheme: *scheme, Scan: *scan})
 }
