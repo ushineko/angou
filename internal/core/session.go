@@ -27,7 +27,7 @@ const BootstrapScriptName = "bootstrap.sh"
 // bundle under the recovery passphrase, which is what a machine uses before it
 // has been bootstrapped and the only route where no keyring backend exists
 // (spec 001 R2.5).
-func Open(dir string, secrets Secrets, ev Events) (*store.Store, error) {
+func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
 	s, usedRecovery, err := open(dir, secrets, ev)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func Open(dir string, secrets Secrets, ev Events) (*store.Store, error) {
 		// the output the e2e suite and the user's eye both depend on.
 		suggestBootstrap(dir, ev)
 	}
-	return s, nil
+	return &Session{st: s, ev: ev}, nil
 }
 
 // OpenDiagnostic does everything Open does except enforce the version floor.
@@ -53,7 +53,7 @@ func Open(dir string, secrets Secrets, ev Events) (*store.Store, error) {
 // It exists for `doctor`, which is the command someone runs to find out why
 // everything else is refusing. A diagnostic that refuses for the very reason
 // being diagnosed tells the user nothing; doctor reports the floor instead.
-func OpenDiagnostic(dir string, secrets Secrets, ev Events) (*store.Store, error) {
+func OpenDiagnostic(dir string, secrets Secrets, ev Events) (*Session, error) {
 	s, usedRecovery, err := open(dir, secrets, ev)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func OpenDiagnostic(dir string, secrets Secrets, ev Events) (*store.Store, error
 	if usedRecovery {
 		suggestBootstrap(dir, ev)
 	}
-	return s, nil
+	return &Session{st: s, ev: ev}, nil
 }
 
 // open takes the first route this machine supports. The second return reports

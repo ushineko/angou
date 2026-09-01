@@ -157,7 +157,7 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 		return fmt.Errorf("write %s: %w", release.KeyName, err)
 	}
 
-	raised, err := s.RaiseVersionFloor(buildinfo.Version, release.CompareVersions)
+	raised, err := s.Store().RaiseVersionFloor(buildinfo.Version, release.CompareVersions)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 	if err := signBootstrapScript(s.Root(), signer); err != nil {
 		return err
 	}
-	if err := recordBootstrapScript(s); err != nil {
+	if err := recordBootstrapScript(s.Store()); err != nil {
 		return err
 	}
 

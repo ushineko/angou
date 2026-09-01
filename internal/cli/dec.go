@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/envelope"
 )
 
@@ -50,13 +50,10 @@ func newDecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// The size is metadata; the digest is not logged. For a low-entropy
-			// secret a digest is a reusable oracle.
-			logf("decrypted %s: %d bytes", env.Path, env.Size)
 
 			switch {
 			case out != "" && out != "-":
-				return writeTo(out, env)
+				return core.WriteTo(out, env)
 			case stdout || out == "-":
 				return writeStdout(env)
 			case restore:
@@ -79,69 +76,26 @@ func newDecCmd() *cobra.Command {
 	return cmd
 }
 
+// restoreToOrigin puts the file back and reports where, or reports that the
+// user declined. The decision points and the write live in internal/core; what
+// stays here is asking on a terminal and printing the outcome.
+func restoreToOrigin(env envelope.Envelope, overwrite bool) error {
+	target, err := core.RestoreToOrigin(env, overwrite, cliDecider{})
+	if errors.Is(err, core.ErrDeclined) {
+		fmt.Fprintln(os.Stderr, "Nothing written.")
+		return errors.New("declined")
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s -> %s\n", env.Path, target)
+	return nil
+}
+
 func writeStdout(env envelope.Envelope) error {
 	if _, err := os.Stdout.Write(env.Content); err != nil {
 		return fmt.Errorf("write plaintext to stdout: %w", err)
 	}
-	return nil
-}
-
-func writeTo(path string, env envelope.Envelope) error {
-	perm := os.FileMode(env.Mode).Perm()
-	if err := os.WriteFile(path, env.Content, perm); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	// WriteFile applies the mode only when it creates the file, so replacing an
-	// existing one would keep whatever permissions that one had. Restoring a
-	// 0600 private key over a 0644 file and leaving it world-readable is not a
-	// restore, and the umask can widen it on creation too.
-	if err := os.Chmod(path, perm); err != nil {
-		return fmt.Errorf("set permissions on %s: %w", path, err)
-	}
-	return nil
-}
-
-// restoreToOrigin puts a file back where it was encrypted from.
-//
-// Acting on a path that came out of the store is only defensible because the
-// envelope is signed (R1.7): forging this destination means forging the
-// signature, so write access to the store does not buy an attacker a write
-// anywhere on this machine. The user is still shown the path and asked, because
-// a store is carried between machines and "where it came from" may not be
-// somewhere it belongs here.
-func restoreToOrigin(env envelope.Envelope, overwrite bool) error {
-	target := env.Origin
-	if !filepath.IsAbs(target) {
-		return fmt.Errorf("the recorded location %q is not absolute; use -o to choose a destination", target)
-	}
-
-	existing, err := os.Lstat(target)
-	switch {
-	case err == nil && existing.Mode()&os.ModeSymlink != 0:
-		return fmt.Errorf("%s is a symlink; refusing to write through it. Use -o to choose a destination", target)
-	case err == nil && !existing.Mode().IsRegular():
-		return fmt.Errorf("%s is not a regular file; refusing to replace it", target)
-	}
-	exists := err == nil
-
-	if !confirm(fmt.Sprintf("Restore %s to %s?", env.Path, target), true) {
-		fmt.Fprintln(os.Stderr, "Nothing written. Use --stdout or -o to get the contents another way.")
-		return errors.New("declined")
-	}
-	if exists && !overwrite {
-		if !confirm(fmt.Sprintf("%s already exists. Replace it?", target), false) {
-			fmt.Fprintln(os.Stderr, "Nothing written.")
-			return errors.New("declined")
-		}
-	}
-
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(target), err)
-	}
-	if err := writeTo(target, env); err != nil {
-		return err
-	}
-	fmt.Printf("%s -> %s\n", env.Path, target)
 	return nil
 }
 

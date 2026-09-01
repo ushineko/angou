@@ -92,7 +92,7 @@ func newEncCmd() *cobra.Command {
 				origin = ""
 			}
 
-			id, err := s.PutWithOrigin(normalized, content,
+			id, err := s.Store().PutWithOrigin(normalized, content,
 				uint32(fi.Mode().Perm()), fi.ModTime().Unix(),
 				mimeFor(src), origin, encodingFor(binary))
 			if err != nil {
@@ -215,7 +215,7 @@ func encryptAll(root string, auto, dryRun bool, enc container.Encoding) error {
 			skipped++
 			continue
 		}
-		if _, err := s.PutWithOrigin(logical, content, uint32(fi.Mode().Perm()),
+		if _, err := s.Store().PutWithOrigin(logical, content, uint32(fi.Mode().Perm()),
 			fi.ModTime().Unix(), mimeFor(c.Path), c.Path, enc); err != nil {
 			return fmt.Errorf("encrypt %s: %w", c.Path, err)
 		}

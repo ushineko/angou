@@ -57,15 +57,16 @@ func newReindexCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.Reindex(); err != nil {
+			r, err := s.Reindex()
+			if err != nil {
 				return err
 			}
-			fmt.Printf("Reindexed %d entries.\n", len(s.List()))
-			for _, name := range s.UnreadableOnReindex {
+			fmt.Printf("Reindexed %d entries.\n", r.Entries)
+			for _, name := range r.Unreadable {
 				fmt.Fprintf(os.Stderr, "angou: ignored %q — it does not decrypt with this store's key. "+
 					"This is usually a leftover from an interrupted rekey; `angou prune --orphans` removes them.\n", name)
 			}
-			for _, name := range s.SkippedOnReindex {
+			for _, name := range r.Skipped {
 				fmt.Fprintf(os.Stderr, "angou: ignored %q — not a blob name. "+
 					"This is usually a sync-service conflicted copy; delete it once you are sure.\n", name)
 			}

@@ -20,7 +20,7 @@ func (cliSecrets) Recovery(p string) ([]byte, error) {
 }
 
 // unlock opens the store by whichever route this machine supports.
-func unlock() (*store.Store, error) {
+func unlock() (*core.Session, error) {
 	dir, err := storeDir()
 	if err != nil {
 		return nil, err
@@ -32,4 +32,16 @@ func unlock() (*store.Store, error) {
 // a superseded local key it is about to replace.
 func unlockLocal(dir string) (*store.Store, error) {
 	return core.OpenLocal(dir, events())
+}
+
+// cliDecider answers core's mid-operation questions on the terminal.
+//
+// With no terminal to ask, it takes the question's default rather than reading
+// from a stdin that may be a file, a pipe, or nothing. That keeps the safe
+// answer safe: the destructive questions default to no, so a non-interactive
+// run declines them unless a flag said otherwise.
+type cliDecider struct{}
+
+func (cliDecider) Ask(d core.Decision) bool {
+	return confirm(d.Question, d.Default)
 }

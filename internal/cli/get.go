@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/ushineko/angou/internal/store"
 )
 
 func newGetCmd() *cobra.Command {
@@ -21,18 +19,11 @@ func newGetCmd() *cobra.Command {
 			"write to the store chooses it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if dest == "" {
-				return fmt.Errorf("--dest is required: extraction needs an explicit root to confine writes to")
-			}
 			s, err := openStore()
 			if err != nil {
 				return err
 			}
-			env, err := s.Get(args[0])
-			if err != nil {
-				return err
-			}
-			written, err := store.Extract(dest, env.Path, env.Content, env.Mode, env.MTime)
+			written, err := s.Extract(args[0], dest)
 			if err != nil {
 				return err
 			}

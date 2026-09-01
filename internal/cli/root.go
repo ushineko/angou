@@ -15,8 +15,8 @@ import (
 
 	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/container"
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/keyring"
-	"github.com/ushineko/angou/internal/store"
 )
 
 // StoreEnv names the environment variable holding the default store directory.
@@ -88,7 +88,7 @@ func storeDir() (string, error) {
 
 // openStore unlocks the store by whichever route the machine supports. See
 // unlock() for the two routes and why a failing local key never falls back.
-func openStore() (*store.Store, error) { return unlock() }
+func openStore() (*core.Session, error) { return unlock() }
 
 func encodingFor(binary bool) container.Encoding {
 	if binary {

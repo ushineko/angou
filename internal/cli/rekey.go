@@ -69,7 +69,7 @@ func rekeyLocal() error {
 	if err != nil {
 		return err
 	}
-	exported, err := s.ExportLocalIdentity()
+	exported, err := s.Store().ExportLocalIdentity()
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func rekeyIdentity() error {
 		return err
 	}
 
-	result, err := s.RekeyIdentity(recovery)
+	result, err := s.Store().RekeyIdentity(recovery)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func newPasswdCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.RewrapRecovery(fresh); err != nil {
+			if err := s.Store().RewrapRecovery(fresh); err != nil {
 				return err
 			}
 			fmt.Printf("Recovery passphrase changed (about %.0f bits).\n", bits)
@@ -242,7 +242,7 @@ func newPruneCmd() *cobra.Command {
 					return err
 				}
 				defer prompt.Zero(recovery)
-				if err := s.PruneSupersededBundles(recovery); err != nil {
+				if err := s.Store().PruneSupersededBundles(recovery); err != nil {
 					return err
 				}
 				fmt.Println("Kept the key bundle that opens this store and removed the rest.")
@@ -258,7 +258,7 @@ func newPruneCmd() *cobra.Command {
 				}
 			}
 			if orphans {
-				removed, misnamed, err := s.PruneOrphans()
+				removed, misnamed, err := s.Store().PruneOrphans()
 				if err != nil {
 					return err
 				}
