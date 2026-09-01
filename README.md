@@ -203,8 +203,9 @@ approval.
 ### Putting things in and getting them out
 
 ```bash
-angou enc .secrets.env                              # store it under its own name
-angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519  # or a name you choose
+angou enc .secrets.env                # store it under the name you typed
+angou enc ~/.ssh/id_ed25519           # an absolute path keeps its structure
+angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519   # or name it yourself
 
 angou dec work/ssh/id_ed25519          # plaintext to stdout
 angou dec .secrets.env -o /tmp/env     # or to one named file
@@ -223,6 +224,14 @@ The name you give a file is the name it keeps. Encrypting the same path again re
 that entry rather than adding a second one, so updating a secret is just `enc` again.
 Two files called `.secrets.env` in different projects do not collide, because the whole
 path is the name.
+
+If you do not pass `--as`, angou works the name out and tells you what it chose. A
+relative path is used exactly as you typed it. An absolute one — which is what your
+shell hands over when you write `~/.secrets.env` — is placed relative to your home
+directory, so `~/projects/one/.secrets.env` is stored as `projects/one/.secrets.env`.
+Files outside your home keep their path with the leading `/` removed. The structure is
+kept rather than reduced to a filename, because a filename alone would put every
+project's `.secrets.env` on the same name and each would replace the last.
 
 `dec` writes one file where you point it. `get` rebuilds it under a directory you name
 and restores its permissions and timestamp. `get` requires `--dest` and has no default:
@@ -536,7 +545,7 @@ and every acceptance criterion in that spec is met. The desktop browser is not s
   store — so an attacker who re-signs a binary and swaps the public key is still refused.
 - **The agent.** A session cache with a short lifetime, documented as excluding other
   users and explicitly not as a boundary against anything running as you.
-- **Testing.** 66 end-to-end tests that build the binary and drive it as a subprocess
+- **Testing.** 69 end-to-end tests that build the binary and drive it as a subprocess
   against throwaway stores, at the parameters users actually get, with a per-run
   passphrase and a redirected `HOME` the suite refuses to run without.
 

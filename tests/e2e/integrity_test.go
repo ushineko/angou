@@ -294,3 +294,76 @@ func TestUnsignedIndexIsRefused(t *testing.T) {
 	e.mustRun("reindex")
 	require.Contains(t, e.mustRun("ls").stdout, "real/i.env")
 }
+
+// TestAbsolutePathsGetAUsableDefaultName covers the most natural way to reach
+// for the tool. The shell expands `~/.secrets.env` before angou sees it, so
+// refusing absolute paths meant refusing the obvious invocation.
+//
+// The mapping keeps the directory structure rather than collapsing to a
+// basename, because the store is keyed by path precisely so that two files
+// called .secrets.env from different projects do not land on the same name
+// (R3.5). Collapsing would reintroduce that collision by default, and a
+// collision here silently replaces one secret with another.
+func TestAbsolutePathsGetAUsableDefaultName(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+
+	// The harness gives the child a HOME of its own, so a file under it
+	// exercises the home-relative branch.
+	home := e.home
+	nested := filepath.Join(home, "projects", "one")
+	mkdirAll(t, nested)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".secrets.env"), []byte("FIELD=top\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(nested, ".secrets.env"), []byte("FIELD=nested\n"), 0o600))
+
+	top := e.mustRun("enc", filepath.Join(home, ".secrets.env"))
+	require.Contains(t, top.stderr, `storing`, "a derived name must be reported, not silently chosen")
+	require.Contains(t, top.stderr, `".secrets.env"`)
+
+	e.mustRun("enc", filepath.Join(nested, ".secrets.env"))
+
+	// Both are present, under distinct names, with their own contents.
+	listing := e.mustRun("ls").stdout
+	require.Contains(t, listing, ".secrets.env")
+	require.Contains(t, listing, "projects/one/.secrets.env")
+	require.Equal(t, "FIELD=top\n", e.mustRun("dec", ".secrets.env").stdout)
+	require.Equal(t, "FIELD=nested\n", e.mustRun("dec", "projects/one/.secrets.env").stdout)
+}
+
+// TestAbsolutePathOutsideHomeKeepsItsStructure covers the other branch.
+func TestAbsolutePathOutsideHomeKeepsItsStructure(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+
+	// e.work is outside the child's HOME, which the harness places elsewhere.
+	src := e.writePlaintext("etcish/thing.conf", []byte("FIELD=value\n"), 0o600)
+	require.True(t, filepath.IsAbs(src))
+
+	r := e.mustRun("enc", src)
+	require.Contains(t, r.stderr, "storing")
+
+	// The leading separator is removed and nothing else, so the path still
+	// distinguishes this file from any other.
+	expected := strings.TrimPrefix(filepath.ToSlash(src), "/")
+	require.Contains(t, e.mustRun("ls").stdout, expected)
+	require.Equal(t, "FIELD=value\n", e.mustRun("dec", expected).stdout)
+}
+
+// TestRelativePathsAreStillTakenVerbatim guards the behaviour that did not
+// change, including the refusal a previous review asked for: a relative path
+// carrying traversal is rejected rather than quietly rewritten.
+func TestRelativePathsAreStillTakenVerbatim(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	e.writePlaintext("plain.env", []byte("FIELD=value\n"), 0o600)
+
+	r := e.mustRun("enc", "plain.env")
+	require.NotContains(t, r.stderr, "storing",
+		"a name taken verbatim needs no announcement")
+	require.Contains(t, e.mustRun("ls").stdout, "plain.env")
+
+	e.writePlaintext("a/plain.env", []byte("FIELD=value\n"), 0o600)
+	bad := e.run("enc", "a/../a/plain.env")
+	require.NotZero(t, bad.code, "a relative path with traversal must still be refused")
+	require.Contains(t, bad.stderr, "--as")
+}
