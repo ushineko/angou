@@ -183,8 +183,10 @@ honestly, because deterministic naming leaks more than a count:
   makes updates land in place.
 - Additions, deletions, and renames, each visible as a name appearing or disappearing.
 - Growth of `index.angou`, which tracks the number of entries.
-- The contents of `bootstrap/`: which operating systems and architectures are in use,
-  and the release history of the tool.
+- The contents of `bootstrap/`: the binaries are plaintext (R5.1), so a reader learns
+  that `angou` is in use, which operating systems and architectures, and the release
+  history. Accepted deliberately in exchange for the bootstrap working with stock `gpg`
+  and for the recovery passphrase guarding exactly one artifact.
 
 Padding, size bucketing, and blob-count obfuscation are out of scope. `K_name`
 rotation (R4.2.1) breaks the per-file identity chain at each identity rekey.
@@ -220,20 +222,55 @@ the previous store intact.
 
 ### R5 — Bootstrap and the `bootstrap/` namespace
 
-R5.1 The store contains a `bootstrap/` namespace encrypted **symmetrically under the
-recovery passphrase**, not to the keypair. It contains the exported key bundle and one
-signed binary per supported OS/architecture.
+R5.1 The store contains a `bootstrap/` namespace holding the exported key bundle and
+one binary per supported OS/architecture, each with a detached signature. The two are
+protected differently, because only one of them is secret:
 
-R5.2 Symmetric encryption is required here to break a circular dependency: binaries in
-the store cannot be encrypted to a keypair that is not yet present on the target
-machine.
+- **The key bundle** is encrypted symmetrically under the recovery passphrase with the
+  Argon2id construction of R2.2.1. It is the sole artifact in the store whose
+  confidentiality matters at this stage.
+- **The binaries are stored in plaintext** with detached OpenPGP signatures from the
+  offline release-signing key (R5.4.1). They are public software; encrypting them
+  protects nothing, and doing so actively weakened the design (R5.2.1).
+
+R5.2 The key bundle is symmetrically encrypted rather than encrypted to the keypair, to
+break a circular dependency: it cannot be encrypted to a keypair that is not yet present
+on the target machine.
+
+R5.2.1 An earlier revision encrypted the binaries symmetrically under the recovery
+passphrase as well. That is withdrawn for two independent reasons, both discovered by
+testing against a real `gpg`:
+
+- **It does not work.** `bootstrap.sh` decrypts using system `gpg`, and GnuPG 2.4.9
+  implements S2K modes 0, 1 and 3 only — Argon2 is mode 4, from the RFC 9580 refresh.
+  An Argon2id-protected message is not decryptable by the tool the bootstrap depends on.
+- **The obvious workaround is worse than the problem.** Using a `gpg`-compatible S2K for
+  the binaries while reserving Argon2id for the key bundle would protect both artifacts
+  with the same passphrase at different costs. An attacker would simply crack the cheaper
+  one and obtain the passphrase, capping the whole system at the weaker KDF and making
+  the Argon2id upgrade worthless. Two artifacts guarded by one secret are only as strong
+  as the weaker guard.
+
+Verifying a detached signature involves no S2K, so plaintext binaries keep stock `gpg`
+sufficient for the bootstrap while confining the recovery passphrase to the one artifact
+that needs it.
 
 R5.3 `make release` stashes the built binaries into `bootstrap/` with a metadata
 record capturing version, git commit, Go toolchain version, build flags, and SHA-256.
 
-R5.4 Binaries are encrypted and OpenPGP-signed. They MUST NOT be stored in plaintext:
-a plaintext executable in a synced directory turns write access to the sync account
-into arbitrary code execution on every machine subsequently bootstrapped.
+R5.4 Binaries are OpenPGP-signed, and signature verification before execution is
+mandatory (R5.6). Tamper-resistance comes from the signature and the version floor, not
+from encryption.
+
+R5.4.0 A prior revision required the binaries to be encrypted, on the grounds that a
+plaintext executable in a synced directory turns write access to the sync account into
+arbitrary code execution. That reasoning predates R5.4.1 and R5.4.2, which close that
+path directly: a substituted binary fails verification against the offline
+release-signing key, and an older genuine binary fails the version floor. Encryption was
+standing in for controls that now exist explicitly, while contributing nothing to
+confidentiality — the binaries are published software. The residual exposure is that a
+reader of the store learns the tool in use and the platforms in play, which R3.8 already
+enumerates.
 
 R5.4.1 The key that signs release binaries is a **separate offline release-signing
 key**, not the store identity keypair. Its public fingerprint is compiled into the
@@ -268,8 +305,12 @@ R5.6 `bootstrap.sh` is responsible for first-run environment handling:
 - Locate `gpg`. Where it is absent, print the correct install command for the detected
   platform (`pacman -S gnupg`, `brew install gnupg`, `apt install gnupg`) and exit
   non-zero rather than proceeding.
-- Prompt for the recovery passphrase, decrypt the platform binary from `bootstrap/`,
-  and verify its OpenPGP signature (R5.4) before installing it.
+- Verify the platform binary's detached signature against the release-signing
+  fingerprint pinned in the script (R5.4.1), and refuse to install on failure. No
+  passphrase is required for this step, and none is prompted for: the binary is not
+  encrypted (R5.1).
+- Check the binary's version against the floor recorded for the store and refuse an
+  older one (R5.4.2).
 - Install to `~/.local/bin/angou`, warn if that directory is not on `PATH`, and hand
   off to `angou bootstrap` (R5.8) for the remainder.
 
@@ -487,8 +528,13 @@ the Phase 3 validation gate.
 ### Bootstrap
 
 - [ ] **Integration:** on a container with no `angou`, no keyring, and no Go
-      toolchain, `bootstrap.sh` extracts and installs a runnable binary from
-      `bootstrap/` using system `gpg` and the recovery passphrase alone.
+      toolchain, `bootstrap.sh` verifies and installs a runnable binary from
+      `bootstrap/` using the system `gpg` present on that image, prompting for no
+      passphrase at the binary step.
+- [ ] **Integration:** the key bundle's Argon2id-protected symmetric message is
+      produced and consumed by `angou` itself, and the test asserts that system `gpg`
+      2.4.x cannot decrypt it — pinning the incompatibility that R5.2.1 records, so a
+      future change cannot silently reintroduce it.
 - [ ] Following that, `angou bootstrap` completes and the round-trip self-test passes.
 - [ ] On a container with `gpg` absent, `bootstrap.sh` exits non-zero naming the
       correct install command for the detected platform and installs nothing.
@@ -578,22 +624,24 @@ documentation must state the limitation rather than imply a guarantee.
 
 **R-8 — `bootstrap.sh` is plaintext and is executed.** Write access to the store
 therefore permits code execution on any machine that has not yet bootstrapped. This is
-the same exposure R5.4 closes for the binaries, relocated to the entrypoint, and it is
-the accepted trust model of any `curl | sh`-style installer. Mitigations: the script
+the same exposure R5.4 and R5.4.2 close for the binaries, relocated to the entrypoint,
+and it is the accepted trust model of any `curl | sh`-style installer. Mitigations: the script
 takes no network input (R5.7), is short enough to read before running, and its hash is
 pinned inside the encrypted store so tampering is detectable out-of-band from any
 already-provisioned machine (R5.8.1).
 
-R5.4 raises the cost of the alternative path but does not close it, and an earlier
-draft of this section overstated the position. Encrypting and signing the binaries stops
-an attacker from *authoring* a malicious one, but signature validity is not freshness:
+Signing raises the cost of the alternative path but does not close it, and an earlier
+draft of this section overstated the position. Signing the binaries stops an attacker
+from *authoring* a malicious one, but signature validity is not freshness:
 without R5.4.2's version floor, replaying an older validly signed binary from
 `bootstrap/` or from the sync service's own history yields execution with
 `bootstrap.sh` untouched. With the version floor in place, the claim holds in its
 narrower form — an attacker cannot install a binary that is either unsigned or older
 than the floor, so modifying `bootstrap.sh` becomes the remaining path, and tampering is
 funnelled into a single small, readable, hash-pinned plaintext file. The strong version
-of the claim depends on R5.4.2, not on R5.4 alone.
+of the claim depends on R5.4.2, not on the signature alone. Note that the binaries are
+themselves plaintext (R5.1): their protection is the signature and the floor, never
+secrecy.
 
 The first machine to run a subverted script is not protected. No plaintext entrypoint
 can protect it, and no placement of a self-check within the script changes this

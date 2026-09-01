@@ -70,7 +70,8 @@ filenames, the contents, or what kinds of files they are. What they do learn:
   particular file — see that it changes every Friday, or that you touched it the day
   something happened — without ever learning what it is;
 - when you add, delete or rename something;
-- which operating systems you run, from the installers the store carries.
+- that you use `angou`, which operating systems you run, and which versions, since the
+  installers the store carries are ordinary files.
 
 Rotating your identity with `angou rekey --identity` renames everything and breaks that
 tracking, which is part of why it is the right response to a lost machine.
@@ -81,9 +82,11 @@ own name. But they can put back an older copy of something you already had: undo
 password rotation, or restore a key you deleted. Your sync service's own version
 history is the defense there, and `angou` does not add another.
 
-They also cannot make you run something. The program the store carries is encrypted,
-signed by a key that is kept offline, and refused if it is older than the newest version
-you have already installed — so an old signed copy cannot be quietly put back either.
+They also cannot make you run something. The program the store carries is signed by a
+key kept offline, and refused if it is older than the newest version you have already
+installed — so neither a swapped copy nor an old one can be quietly put back. The
+program itself is not encrypted, and does not need to be: it is the same software
+anybody can download, and what protects you is the signature, not secrecy.
 The one exception is `bootstrap.sh`, which is plaintext by necessity, because something
 has to run before the program exists. Its hash is recorded inside the store and
 published on GitHub, so you can check it before running it on your first machine and
