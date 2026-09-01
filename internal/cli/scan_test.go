@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLooksSecret pins the judgement the scanner makes, which is the whole of
-// its value. Table-driven because the interesting cases are the near misses.
-func TestLooksSecret(t *testing.T) {
+// TestLooksSecretByName pins the judgement made on names alone, for the rules
+// precise enough not to need a look at the contents.
+func TestLooksSecretByName(t *testing.T) {
 	cases := []struct {
 		path string
 		want bool
@@ -27,19 +27,101 @@ func TestLooksSecret(t *testing.T) {
 		{"/home/u/proj/staging.env", true, "an environment file"},
 		{"/home/u/.netrc", true, "netrc credentials"},
 		{"/home/u/.pgpass", true, "a password file"},
-		{"/home/u/certs/server.pem", true, "a key or certificate"},
 		{"/home/u/certs/server.pub", false, "public material"},
-		{"/home/u/app/db-password.txt", true, "the name says so"},
 		{"/home/u/docs/README.md", false, "an ordinary document"},
 		{"/home/u/src/main.go", false, "source code"},
 		{"/home/u/.docker/config.json", true, "registry credentials"},
 		{"/home/u/other/config.json", false, "only credentials when it is docker's"},
+		{"/home/u/keys/bundle.p12", true, "a key store"},
+
+		// Templates advertise themselves as placeholders. On a developer's
+		// machine these are the most common file that looks exactly like a
+		// credential and holds nothing but example values.
+		{"/home/u/proj/.env.example", false, "a template, not a credential"},
+		{"/home/u/proj/.env.template", false, "a template"},
+		{"/home/u/proj/.env.local.template", false, "a template"},
+		{"/home/u/proj/.env.sample", false, "a template"},
+		{"/home/u/proj/.env.local", true, "a real local environment file"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
 			_, got := looksSecret(tc.path, filepath.Base(tc.path))
 			require.Equal(t, tc.want, got, tc.why)
 		})
+	}
+}
+
+// TestWeakRulesRequireContent covers the rules a name alone cannot settle.
+//
+// Every case here comes from running the scan against a real home directory. An
+// earlier version offered eighteen session-state files ending in .key, Python's
+// own secrets.py, libssh2 man pages and a pkg-config file — which is why these
+// rules look at the file before speaking.
+func TestWeakRulesRequireContent(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) string {
+		path := filepath.Join(root, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		return path
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want bool
+		why  string
+	}{
+		{"real private key",
+			write("server.key", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNza\n"),
+			true, "the PEM header is the evidence"},
+		{"session handle with a .key name",
+			write("sessions/34671.abc.key", `{"id":"34671","pid":9182}`+"\n"),
+			false, "a .key extension is not a private key"},
+		{"certificate without a private half",
+			write("server.crt", "-----BEGIN CERTIFICATE-----\nMIIC\n"),
+			false, "a certificate is not a secret"},
+		{"credentials mentioning a secret",
+			write("db-password.txt", "DB_PASSWORD=hunter2\nDB_USER=app\n"),
+			true, "the name and the contents agree"},
+		{"a note about passwords",
+			write("password-policy.txt", "Passwords must be rotated every 90 days.\nSee the handbook.\n"),
+			false, "prose about secrets is not a secret"},
+		{"a binary that mentions a token",
+			write("token-report.bin", "\x00\x01\x02binary: data\x00\x03"),
+			false, "binary content must not match by accident"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, got := looksSecret(tc.path, filepath.Base(tc.path))
+			require.Equal(t, tc.want, got, tc.why)
+		})
+	}
+}
+
+// TestProseAndProgramsAreNotCredentials covers the exclusion that turned the
+// weakest rule from noise into signal. Every name here was actually offered by
+// an earlier version of the scan.
+func TestProseAndProgramsAreNotCredentials(t *testing.T) {
+	for _, name := range []string{
+		"secrets.py", "token.py", "secret.py",
+		"libssh2_userauth_password.3", "libssh2_userauth_password_ex.3",
+		"absl_cordz_sample_token.pc",
+		"Invoke-ImpersonateByProcessToken.ps1",
+		"KDB4_PasswordsOnly.xsl",
+		"secret-report.yml",
+		"feedback_passwordless_sudo_ask_first.md",
+		"1Password Emergency Kit.pdf",
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.True(t, isProseOrProgram(name),
+				"%s talks about secrets for a living; it does not hold one", name)
+		})
+	}
+
+	// And the things that are not prose still reach the rules.
+	for _, name := range []string{"credentials", ".env", "id_rsa", "msal_token_cache.json", "secrets.env.txt"} {
+		require.False(t, isProseOrProgram(name), "%s must not be excluded", name)
 	}
 }
 
@@ -57,6 +139,7 @@ func TestScanSkipsNoiseAndBulk(t *testing.T) {
 	write("node_modules/pkg/.env", 10)
 	write(".git/config", 10)
 	write(".cache/x/.env", 10)
+	write(".claude/sessions/a.key", 10)
 	write("huge.pem", maxScanSize+1)
 	write("empty.pem", 0)
 	write("deep/one/two/three/four/five/.env", 10)
@@ -80,7 +163,7 @@ func TestScanSkipsNoiseAndBulk(t *testing.T) {
 func TestScanIgnoresSymlinks(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "secret.pem")
-	require.NoError(t, os.WriteFile(outside, []byte("PRIVATE\n"), 0o600))
+	require.NoError(t, os.WriteFile(outside, []byte("-----BEGIN PRIVATE KEY-----\n"), 0o600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "link.pem")))
 
 	found, err := scanForSecrets(root)

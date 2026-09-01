@@ -305,22 +305,44 @@ destination is refused rather than written through.
 ### Sweeping up what is already on the machine
 
 ```bash
-angou enc ~ --all          # look through it, ask about each thing found
-angou enc ~ --all --auto   # take them all without asking
+angou enc ~ --all --dry-run   # show what it found and why, store nothing
+angou enc ~ --all             # ask about each thing found
+angou enc ~ --all --auto      # take them all without asking
 ```
 
-`--all` treats the argument as a directory and looks for the kinds of file credentials
-usually live in: SSH private keys, cloud and cluster credentials, `.env` files, `.netrc`,
-`.pgpass`, keys and certificates, and files whose names mention a secret. It skips public
-keys, and it does not descend into `node_modules`, `.git`, caches and the like, because a
-vendored copy of a `.env` is noise.
+**Start with `--dry-run`.** It prints what the scan picked and why, and stores nothing:
+
+```
+SIZE   FILE                        WHY
+1.6K   ~/.ssh/id_rsa               SSH private key
+2.0K   ~/.aws/credentials          AWS credentials
+8.7K   ~/.kube/config              Kubernetes credentials
+496B   ~/git/proj/.env             environment file
+1.6K   ~/.minikube/ca.key          private key
+```
+
+`--all` looks for the kinds of file credentials usually live in: SSH private keys, cloud
+and cluster credentials, `.env` files, `.netrc`, `.pgpass`, keys and key stores, and
+files whose names mention a secret.
+
+Where a name alone is not enough, it looks at the file. A `.key` extension means a
+private key in some tools and a session handle in others, so `.key` and `.pem` files are
+offered only if they actually begin with a private-key header — a certificate is not a
+secret and neither is a cache entry. A name merely mentioning "password" is as likely to
+be a note about passwords as a file containing one, so those must also look like
+assignments and must not be source code, documentation, or a manual page. Templates
+(`.env.example`, `.env.template`) are skipped: showing the shape of a credential is the
+opposite of being one.
+
+It does not descend into `node_modules`, `.git`, caches, tool state or installed
+software, because a vendored copy of a `.env` is noise.
 
 It asks about each file by default, because the list is a guess and a guess is worth
 checking. Without a terminal to ask, it refuses rather than assuming yes — sweeping a
 home directory into a store is not something to do because nobody was there to object.
 
-**An empty result is not a clean bill of health.** The scan knows the usual names and
-places. It will miss a credential in a file it has never heard of.
+**An empty or short result is not a clean bill of health.** The scan knows the usual
+names and places. It will miss a credential in a file it has never heard of.
 
 ### Looking at what you have
 
@@ -583,7 +605,8 @@ the CLI and is never needed to set a machine up.
 angou/
 ├── cmd/angou/              the command line
 ├── cmd/angou-gui/          the desktop browser (not built yet)
-├── lib/container/          the blob format — readable by other tools
+├── internal/container/     the blob format
+├── internal/buildinfo/     what this binary was built from
 ├── internal/cli/           the command tree
 │   └── assets/             the bootstrap installer, as shipped into a store
 ├── internal/store/         blob naming, the index, rotation, extraction
@@ -665,12 +688,21 @@ machine" cannot honestly be tested on this one.
 ### 0.1.3
 
 - `angou enc <dir> --all` looks through a directory for the kinds of file credentials
-  live in — SSH keys, cloud and cluster credentials, `.env` files, `.netrc`, `.pgpass`,
-  keys and certificates — and offers each one. `--auto` takes them without asking. It
-  skips public keys and does not descend into `node_modules`, `.git` or caches. Without
-  a terminal to ask and without `--auto` it refuses, rather than treating silence as
-  consent. An empty result is reported as what it is: the scan knows the usual names and
-  places, not every way a secret can be written down.
+  live in and offers each one; `--auto` takes them without asking, and `--dry-run` shows
+  what it found and why without storing anything. Without a terminal to ask and without
+  `--auto` it refuses, rather than treating silence as consent.
+
+  Where a name alone is not enough it looks at the file, because names alone are what
+  made it useless: run against a real home directory, an earlier version offered
+  eighteen session-state files ending in `.key`, Python's own `secrets.py`, two libssh2
+  manual pages, a pkg-config file, and twenty `.env.example` templates. `.key` and
+  `.pem` files now need a private-key header, a name mentioning a secret needs contents
+  that look like one and must not be source or documentation, and templates are skipped.
+  On the same directory that took the result from 140 files to 88, with every remaining
+  match a real credential.
+
+  An empty result is reported as what it is: the scan knows the usual names and places,
+  not every way a secret can be written down.
 - `enc` records where a file was, and `dec` offers to put it back there. On a second
   machine that means an SSH key returns to `~/.ssh` rather than landing wherever you are
   standing, with its permissions intact — a key restored over a world-readable file ends

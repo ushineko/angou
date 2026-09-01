@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/envelope"
 	"github.com/ushineko/angou/internal/keybundle"
 	"github.com/ushineko/angou/internal/pgpcrypto"
-	"github.com/ushineko/angou/lib/container"
 )
 
 // stagingDir is where a rekey assembles the new store before committing any of

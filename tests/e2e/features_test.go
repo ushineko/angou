@@ -59,6 +59,7 @@ func TestEncAllFindsCredentialsAndSkipsTheRest(t *testing.T) {
 	}
 	for _, unwanted := range []string{
 		"id_ed25519.pub", "README.md", ".cache", "node_modules",
+		".env.example", "secrets.py",
 	} {
 		require.NotContains(t, listing, unwanted, "the scan should not have offered %s", unwanted)
 	}
@@ -92,6 +93,47 @@ func TestEncAllAsksWithoutAuto(t *testing.T) {
 
 	require.Empty(t, strings.TrimSpace(e.mustRun("ls", "--names").stdout),
 		"nothing may be stored")
+}
+
+// TestEncAllDryRunStoresNothing covers the flag that makes the scan usable: the
+// only way to find out whether the guess is any good on a particular machine is
+// to see what it picked and why, before it acts.
+func TestEncAllDryRunStoresNothing(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	seedHome(t, e)
+
+	r := e.mustRun("enc", "--all", "--dry-run", e.home)
+
+	// It reports what it found, and why for each one.
+	require.Contains(t, r.stdout, "SIZE")
+	require.Contains(t, r.stdout, "WHY")
+	require.Contains(t, r.stdout, "id_ed25519")
+	require.Contains(t, r.stdout, "SSH private key")
+	require.Contains(t, r.stdout, "AWS credentials")
+	require.Contains(t, r.stdout, ".env")
+
+	// And it declines what it should, in the same listing.
+	require.NotContains(t, r.stdout, "id_ed25519.pub")
+	require.NotContains(t, r.stdout, "README.md")
+
+	require.Contains(t, r.stderr, "Nothing was stored")
+	require.Contains(t, r.stderr, "not an assurance")
+
+	// Nothing was stored, which is the whole contract.
+	require.Empty(t, strings.TrimSpace(e.mustRun("ls", "--names").stdout))
+}
+
+// TestDryRunNeedsAll checks the flag is refused where it would mean nothing,
+// rather than silently ignored.
+func TestDryRunNeedsAll(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	src := e.writePlaintext("one.env", []byte("FIELD=value\n"), 0o600)
+
+	r := e.run("enc", "--dry-run", src)
+	require.NotZero(t, r.code)
+	require.Contains(t, r.stderr, "--all")
 }
 
 // TestEncAllOnAnEmptyTreeSaysWhatItMeans covers the wording of the empty result,

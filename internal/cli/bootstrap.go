@@ -9,11 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/buildinfo"
+	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/store"
-	"github.com/ushineko/angou/lib/container"
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -71,7 +72,7 @@ func newBootstrapCmd() *cobra.Command {
 			}
 			// The real version floor is applied here, where the store can
 			// actually be read (R5.4.2).
-			if err := checkVersionFloor(s, container.Version); err != nil {
+			if err := checkVersionFloor(s, buildinfo.Version); err != nil {
 				return err
 			}
 			fingerprint := s.Fingerprint()

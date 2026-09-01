@@ -37,6 +37,13 @@ var secretPatterns = []struct {
 	dir    string
 	match  func(name string) bool
 	reason string
+	// verify, when set, must also agree after looking at the start of the file.
+	// The rules that rest on a name alone are the ones that misfire: a `.key`
+	// extension means a private key in some tools and a cache entry in others —
+	// one real home directory held eighteen session files ending in `.key` and
+	// not a secret among them — and a filename mentioning "password" is as
+	// likely to be a note about passwords as a file containing one.
+	verify func(head []byte) bool
 }{
 	{dir: ".ssh", match: func(n string) bool {
 		return strings.HasPrefix(n, "id_") && !strings.HasSuffix(n, ".pub")
@@ -52,18 +59,132 @@ var secretPatterns = []struct {
 	{match: func(n string) bool { return n == ".pgpass" }, reason: "PostgreSQL password file"},
 	{match: func(n string) bool { return n == ".npmrc" || n == ".pypirc" }, reason: "package registry token"},
 	{match: func(n string) bool { return n == "credentials" || n == "credentials.json" }, reason: "credentials file"},
+	// Text key formats: the extension is a hint, the PEM header is the evidence.
 	{match: func(n string) bool {
-		for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"} {
+		for _, ext := range []string{".pem", ".key", ".crt", ".cer"} {
 			if strings.HasSuffix(n, ext) {
 				return true
 			}
 		}
 		return false
-	}, reason: "key or certificate"},
+	}, reason: "private key", verify: looksLikePrivateKey},
+
+	// Binary key stores have no header this can read, and the extensions are
+	// specific enough that they are rarely anything else.
 	{match: func(n string) bool {
+		for _, ext := range []string{".p12", ".pfx", ".jks", ".keystore"} {
+			if strings.HasSuffix(n, ext) {
+				return true
+			}
+		}
+		return false
+	}, reason: "key store"},
+
+	// The weakest signal there is, so it carries the most conditions: the name
+	// must mention a secret, the file must not be something that obviously
+	// discusses secrets rather than holding one, and the contents must look
+	// like assignments.
+	//
+	// Without the middle condition this rule is worse than useless. Run against
+	// a real home directory it offered Python's own secrets.py and token.py,
+	// libssh2 man pages, a pkg-config file, and every source file with "token"
+	// in its name — because source code assigns values, which is exactly what
+	// the content check looks for.
+	{match: func(n string) bool {
+		if isProseOrProgram(n) {
+			return false
+		}
 		lower := strings.ToLower(n)
-		return strings.Contains(lower, "secret") || strings.Contains(lower, "password")
-	}, reason: "name mentions a secret"},
+		return strings.Contains(lower, "secret") || strings.Contains(lower, "password") ||
+			strings.Contains(lower, "token")
+	}, reason: "name mentions a secret and the contents look like one", verify: looksLikeAssignment},
+}
+
+// proseOrProgramExtensions are files that talk about secrets for a living.
+// Source, documentation, manual pages, and build metadata all mention
+// credentials constantly and hold none.
+var proseOrProgramExtensions = map[string]bool{
+	".py": true, ".go": true, ".js": true, ".ts": true, ".tsx": true, ".jsx": true,
+	".rs": true, ".c": true, ".h": true, ".cpp": true, ".hpp": true, ".java": true,
+	".rb": true, ".php": true, ".pl": true, ".sh": true, ".bash": true, ".zsh": true,
+	".md": true, ".rst": true, ".adoc": true, ".html": true, ".css": true,
+	".pc": true, ".cmake": true, ".mk": true, ".gradle": true, ".lock": true,
+	".po": true, ".mo": true, ".pyc": true, ".pyi": true, ".map": true,
+	".ps1": true, ".psm1": true, ".bat": true, ".cmd": true, ".vbs": true,
+	".xsl": true, ".xslt": true, ".xml": true, ".yml": true, ".yaml": true,
+	".pdf": true, ".doc": true, ".docx": true, ".odt": true, ".rtf": true,
+}
+
+// isProseOrProgram reports whether a filename is something that discusses
+// secrets rather than holding one.
+func isProseOrProgram(name string) bool {
+	if proseOrProgramExtensions[strings.ToLower(filepath.Ext(name))] {
+		return true
+	}
+	// Manual pages: a single-digit or digit-plus-letter section suffix.
+	if ext := strings.TrimPrefix(filepath.Ext(name), "."); len(ext) <= 2 && ext != "" {
+		if ext[0] >= '1' && ext[0] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeText reports whether a byte sample reads as text rather than as a
+// binary format.
+func looksLikeText(head []byte) bool {
+	if len(head) == 0 {
+		return false
+	}
+	printable := 0
+	for _, b := range head {
+		if b == 0 {
+			return false // a NUL byte settles it
+		}
+		if b >= 0x20 && b < 0x7f || b == '\n' || b == '\r' || b == '\t' {
+			printable++
+		}
+	}
+	return printable*10 >= len(head)*9
+}
+
+// looksLikePrivateKey reports whether a file begins with a PEM private-key
+// header. A certificate is not a secret, so a plain "BEGIN CERTIFICATE" does not
+// qualify.
+func looksLikePrivateKey(head []byte) bool {
+	text := string(head)
+	if !strings.Contains(text, "-----BEGIN") {
+		return false
+	}
+	return strings.Contains(text, "PRIVATE KEY")
+}
+
+// looksLikeAssignment reports whether the start of a file looks like it assigns
+// a value to something, which is what a credential file does and what a note
+// about credentials does not.
+//
+// Binary files are excluded first. Without that, any large binary whose name
+// mentions a secret matches by accident — a PDF happens to contain bytes that
+// read as "key: value" — and the scanner ends up asserting a reason it cannot
+// actually support.
+func looksLikeAssignment(head []byte) bool {
+	if !looksLikeText(head) {
+		return false
+	}
+	for _, line := range strings.Split(string(head), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			key, value, ok = strings.Cut(line, ":")
+		}
+		if ok && strings.TrimSpace(key) != "" && len(strings.TrimSpace(value)) > 3 {
+			return true
+		}
+	}
+	return false
 }
 
 // skipDirs are never descended into. They are large, uninteresting, and full of
@@ -73,6 +194,15 @@ var skipDirs = map[string]bool{
 	"venv": true, "vendor": true, "target": true, "build": true,
 	".gradle": true, ".cargo": true, ".rustup": true, ".npm": true,
 	".local": true, ".mozilla": true, "Downloads": true, "snap": true,
+	// Tool state directories. They are full of files whose names look like
+	// credentials and are not: session handles, cache entries, plugin sources.
+	".claude": true, ".vscode": true, ".idea": true, ".pki": true,
+	"__pycache__": true, ".pytest_cache": true, ".terraform": true,
+	// Installed software. Its files are not this user's secrets, and a language
+	// runtime ships plenty of names that read like credentials.
+	"site-packages": true, "dist-packages": true, "pkgconfig": true,
+	"man": true, "share": true, "miniforge3": true, "miniconda3": true,
+	".pyenv": true, ".nvm": true, ".sdkman": true, ".goenv": true,
 }
 
 // scanForSecrets walks a directory and returns what looks worth encrypting.
@@ -142,10 +272,36 @@ func entryInfo(d fs.DirEntry) (fs.FileInfo, bool) {
 	return info, err == nil
 }
 
+// headBytes is how much of a file the content checks look at. A PEM header and
+// the first assignment in a credentials file are both near the top, and reading
+// more would mean reading whole files during what is meant to be a survey.
+const headBytes = 512
+
+// templateMarkers name a file that shows the shape of a credential rather than
+// holding one. `.env.example` is the most common file on any developer's machine
+// that looks exactly like a secret and contains nothing but placeholders.
+var templateMarkers = []string{"example", "template", "sample", "dist", "tmpl", "default"}
+
+// isTemplate reports whether a filename advertises itself as a placeholder.
+func isTemplate(name string) bool {
+	lower := strings.ToLower(name)
+	for _, marker := range templateMarkers {
+		if strings.HasSuffix(lower, "."+marker) || strings.Contains(lower, "."+marker+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // looksSecret reports whether a file matches, and why.
 func looksSecret(path, name string) (string, bool) {
 	// Public keys are the most common false positive and are never secret.
 	if strings.HasSuffix(name, ".pub") {
+		return "", false
+	}
+	// Nor is a file whose whole purpose is to show what a credential file looks
+	// like without being one.
+	if isTemplate(name) {
 		return "", false
 	}
 	parent := filepath.Base(filepath.Dir(path))
@@ -153,9 +309,29 @@ func looksSecret(path, name string) (string, bool) {
 		if p.dir != "" && parent != p.dir {
 			continue
 		}
-		if p.match(name) {
-			return p.reason, true
+		if !p.match(name) {
+			continue
 		}
+		if p.verify != nil && !p.verify(readHead(path)) {
+			continue
+		}
+		return p.reason, true
 	}
 	return "", false
+}
+
+// readHead returns the first bytes of a file, or nothing if it cannot be read.
+func readHead(path string) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+
+	head := make([]byte, headBytes)
+	n, err := f.Read(head)
+	if err != nil && n == 0 {
+		return nil
+	}
+	return head[:n]
 }

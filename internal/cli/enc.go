@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/store"
-	"github.com/ushineko/angou/lib/container"
 )
 
 func newEncCmd() *cobra.Command {
@@ -20,6 +21,7 @@ func newEncCmd() *cobra.Command {
 		binary      bool
 		all         bool
 		auto        bool
+		dryRun      bool
 	)
 
 	cmd := &cobra.Command{
@@ -36,11 +38,17 @@ func newEncCmd() *cobra.Command {
 			"and a guess is worth checking. --auto takes them all without asking.\n\n" +
 			"The scan is a convenience, not a guarantee. It will miss secrets in files it has\n" +
 			"never heard of, and it will occasionally offer you something harmless. Do not\n" +
-			"read an empty result as \"there is nothing sensitive here\".",
+			"read an empty result as \"there is nothing sensitive here\".\n\n" +
+			"--dry-run prints what the scan found and why it thinks so, and stores nothing.\n" +
+			"Run that first: it is how you find out whether the guess is any good on your\n" +
+			"machine before you act on it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if all {
-				return encryptAll(args[0], auto, encodingFor(binary))
+				return encryptAll(args[0], auto, dryRun, encodingFor(binary))
+			}
+			if dryRun {
+				return fmt.Errorf("--dry-run only means something with --all")
 			}
 			src := args[0]
 			content, err := os.ReadFile(src)
@@ -102,6 +110,8 @@ func newEncCmd() *cobra.Command {
 		"treat the argument as a directory to scan for credentials")
 	cmd.Flags().BoolVar(&auto, "auto", false,
 		"with --all, encrypt everything found without asking about each file")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
+		"with --all, print what the scan found and why, and encrypt nothing")
 	return cmd
 }
 
@@ -146,7 +156,7 @@ func defaultLogicalPath(src string) (string, bool) {
 }
 
 // encryptAll scans a directory and encrypts what it finds.
-func encryptAll(root string, auto bool, enc container.Encoding) error {
+func encryptAll(root string, auto, dryRun bool, enc container.Encoding) error {
 	found, err := scanForSecrets(root)
 	if err != nil {
 		return err
@@ -156,6 +166,10 @@ func encryptAll(root string, auto bool, enc container.Encoding) error {
 		fmt.Fprintln(os.Stderr, "That is not the same as there being nothing sensitive there: the scan only\n"+
 			"knows the usual names and places.")
 		return nil
+	}
+
+	if dryRun {
+		return reportScan(root, found)
 	}
 
 	// Without a terminal there is nobody to ask, and the default answer to
@@ -210,6 +224,43 @@ func encryptAll(root string, auto bool, enc container.Encoding) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "\nEncrypted %d, skipped %d. The originals are untouched.\n", stored, skipped)
+	return nil
+}
+
+// reportScan prints what the scan found without touching the store.
+//
+// This is the command to run first. The scan is a guess, and the only way to
+// find out whether it is a good one on a particular machine is to look at what
+// it picked and why — a rule that is right about SSH keys can still be wrong
+// about a directory full of session files whose names end in .key.
+func reportScan(root string, found []candidate) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	defer func() { _ = w.Flush() }()
+
+	colour := useColour(false)
+	_, _ = fmt.Fprintln(w, paint(colour, cDim, "SIZE\tFILE\tWHY"))
+
+	for _, c := range found {
+		if _, err := logicalPathFor(c.Path, ""); err != nil {
+			// A file the store cannot name is not a candidate; say so here
+			// rather than failing later.
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n",
+				paint(colour, cGreen, humanSize(c.Size)),
+				paint(colour, cDim, shortenHome(c.Path)),
+				paint(colour, cRed, "cannot be stored: "+err.Error()))
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n",
+			paint(colour, cGreen, humanSize(c.Size)),
+			paint(colour, colourFor(c.Path), shortenHome(c.Path)),
+			paint(colour, cYell, c.Reason))
+	}
+	_ = w.Flush()
+
+	fmt.Fprintf(os.Stderr, "\n%d file(s) under %s. Nothing was stored.\n", len(found), root)
+	fmt.Fprintln(os.Stderr, "Run again with --all to be asked about each, or --all --auto to take them all.")
+	fmt.Fprintln(os.Stderr, "\nAn empty or short list is not an assurance: the scan knows the usual names and\n"+
+		"places, not every way a secret can be written down.")
 	return nil
 }
 

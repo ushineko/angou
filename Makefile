@@ -16,7 +16,7 @@ COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 # makes them refuse to install a binary from a store rather than trusting any
 # signature they can verify. A real release sets it.
 RELEASE_KEY?=
-LDFLAGS=-w -s -X $(MODULE)/lib/container.Version=$(VERSION) -X $(MODULE)/lib/container.Commit=$(COMMIT) -X $(MODULE)/internal/release.SigningKeyFingerprint=$(RELEASE_KEY)
+LDFLAGS=-w -s -X $(MODULE)/internal/buildinfo.Version=$(VERSION) -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT) -X $(MODULE)/internal/release.SigningKeyFingerprint=$(RELEASE_KEY)
 
 LINT_NAME?=golangci-lint
 LINT_VERSION?=v2.12.2

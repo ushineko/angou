@@ -10,13 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/keybundle"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
-	"github.com/ushineko/angou/lib/container"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -168,9 +168,9 @@ func reportBootstrapNamespace(w *tabwriter.Writer, dir string, s *store.Store) {
 		return
 	}
 	if floor := s.Meta().VersionFloor; floor != "" {
-		if err := checkVersionFloor(s, container.Version); err != nil {
+		if err := checkVersionFloor(s, buildinfo.Version); err != nil {
 			report(w, "version floor", floor+" — THIS BINARY IS OLDER AND WILL BE REFUSED")
-			report(w, "  this binary", container.Version)
+			report(w, "  this binary", buildinfo.Version)
 			report(w, "  to fix", "install the current release; a signed old release is still an old release")
 		} else {
 			report(w, "version floor", floor+" (older binaries are refused)")

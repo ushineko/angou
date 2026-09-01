@@ -202,7 +202,7 @@ The tag must point at the commit that bumped `VERSION` and `README.md`; verify w
 The container delimiters (`-----BEGIN ANGOU1 BLOB-----`) appear in three places:
 spec 001 R1.1, `packaging/magic`, and `packaging/angou.xml`. They are duplicated by
 necessity — `file(1)` and `shared-mime-info` cannot read a Go constant. Changing one
-means changing all three, plus `lib/container`.
+means changing all three, plus `internal/container`.
 
 ---
 

@@ -14,12 +14,6 @@ import (
 	"strings"
 )
 
-// Version and Commit are injected at build time via -ldflags.
-var (
-	Version = "dev"
-	Commit  = "unknown"
-)
-
 // Container delimiters. These literals are duplicated in packaging/magic and
 // packaging/angou.xml for file(1) and shared-mime-info, which cannot read a Go
 // constant. Changing one means changing all three.

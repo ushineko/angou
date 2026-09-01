@@ -547,7 +547,8 @@ R6.6 Package layout:
 angou/
   cmd/angou/            CLI entry point
   cmd/angou-gui/        GUI entry point
-  lib/container/          container format — exported, third-party readable
+  internal/container/     container format
+  internal/buildinfo/     what this binary was built from
   internal/store/         blob addressing, index, reindex
   internal/envelope/      inner metadata envelope
   internal/keyring/       keyring_linux.go, keyring_darwin.go
@@ -558,6 +559,25 @@ angou/
 
 Platform-specific keyring files are split by build constraint so macOS Keychain
 support is a new file rather than a refactor.
+
+R6.6.1 The container package is `internal/`, not a public one. An earlier revision placed
+it under `lib/` as "exported, third-party readable", and that is withdrawn.
+
+Third-party readability is already guaranteed, and by a stronger route: R1.5 requires the
+payload to be a standard OpenPGP message that stock `gpg` decrypts without angou. That is
+the recovery guarantee, and it holds for anyone with `gpg` rather than only for someone
+writing Go. A public Go package adds nothing to it.
+
+What it does add is a promise. Every exported symbol in a public package is a
+compatibility commitment that cannot be withdrawn once anything depends on it, and no
+consumer had asked for one. The asymmetry decides the placement: promoting a package
+from `internal/` when someone needs it is easy, and demoting a public one is a breaking
+change. Starting internal keeps the option open in the direction that is cheap to
+exercise.
+
+Build metadata moves out of the container package at the same time. `Version` and
+`Commit` lived there because that is where the `-ldflags` path happened to point, which
+made the format's package the place to ask what version the program was.
 
 ### R7 — Build and lint
 

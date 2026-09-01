@@ -6,11 +6,11 @@ import (
 	"os"
 
 	"github.com/ushineko/angou/internal/agent"
+	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/store"
-	"github.com/ushineko/angou/lib/container"
 )
 
 // unlock opens the store by whichever route this machine supports.
@@ -157,7 +157,7 @@ func finishUnlock(s *store.Store) (*store.Store, error) {
 	// Checking it there alone would leave the rollback R5.4.2 exists to stop
 	// perfectly usable once the older binary was installed: it could still read
 	// and write every blob, which is the part that matters.
-	if err := checkVersionFloor(s, container.Version); err != nil {
+	if err := checkVersionFloor(s, buildinfo.Version); err != nil {
 		return nil, err
 	}
 	return finishUnlockDiagnostic(s)

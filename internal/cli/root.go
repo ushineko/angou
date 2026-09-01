@@ -13,9 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/buildinfo"
+	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/store"
-	"github.com/ushineko/angou/lib/container"
 )
 
 // StoreEnv names the environment variable holding the default store directory.
@@ -37,7 +38,7 @@ func Root() *cobra.Command {
 		Long: "angou converts sensitive files to and from encrypted blobs held in a plain\n" +
 			"directory. The store is portable: rsync, a sync service, or removable media\n" +
 			"carries it without any further state.",
-		Version: fmt.Sprintf("%s (%s)", container.Version, container.Commit),
+		Version: fmt.Sprintf("%s (%s)", buildinfo.Version, buildinfo.Commit),
 		// Errors are reported once, by main, with the program name. Leaving
 		// cobra's own reporting on prints every failure twice.
 		// Checked once, before any command does work, so a misspelt keyring

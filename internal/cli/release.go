@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/pgpcrypto"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
-	"github.com/ushineko/angou/lib/container"
 )
 
 func newReleaseCmd() *cobra.Command {
@@ -157,7 +157,7 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 		return fmt.Errorf("write %s: %w", release.KeyName, err)
 	}
 
-	raised, err := s.RaiseVersionFloor(container.Version, release.CompareVersions)
+	raised, err := s.RaiseVersionFloor(buildinfo.Version, release.CompareVersions)
 	if err != nil {
 		return err
 	}
@@ -180,10 +180,10 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 		return err
 	}
 
-	fmt.Printf("Stashed %d binaries at version %s into %s\n", stashed, container.Version, bootstrapDir)
+	fmt.Printf("Stashed %d binaries at version %s into %s\n", stashed, buildinfo.Version, bootstrapDir)
 	fmt.Printf("Signed by %s\n", signer.Fingerprint())
 	if raised {
-		fmt.Printf("Version floor raised to %s: older binaries will now be refused.\n", container.Version)
+		fmt.Printf("Version floor raised to %s: older binaries will now be refused.\n", buildinfo.Version)
 	}
 	if len(removed) > 0 {
 		fmt.Printf("Pruned %d superseded binaries beyond --keep %d.\n", len(removed), keep)
@@ -196,7 +196,7 @@ func stashOne(src, bootstrapDir, goos, goarch string, signer *pgpcrypto.Identity
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src, err)
 	}
-	name := release.BinaryName(goos, goarch, container.Version)
+	name := release.BinaryName(goos, goarch, buildinfo.Version)
 	target := filepath.Join(bootstrapDir, name)
 
 	if err := os.WriteFile(target, binary, 0o755); err != nil { //nolint:gosec // an executable must be executable
@@ -212,8 +212,8 @@ func stashOne(src, bootstrapDir, goos, goarch string, signer *pgpcrypto.Identity
 
 	sum := sha256.Sum256(binary)
 	meta := release.Metadata{
-		Version:    container.Version,
-		Commit:     container.Commit,
+		Version:    buildinfo.Version,
+		Commit:     buildinfo.Commit,
 		Toolchain:  runtime.Version(),
 		BuildFlags: "-ldflags='-w -s' -trimpath CGO_ENABLED=0",
 		GOOS:       goos,

@@ -137,7 +137,7 @@ func buildVersioned(t *testing.T, e *env, version string) string {
 	t.Helper()
 	out := filepath.Join(e.work, "angou-"+version)
 	cmd := exec.Command("go", "build",
-		"-ldflags", "-X github.com/ushineko/angou/lib/container.Version="+version,
+		"-ldflags", "-X github.com/ushineko/angou/internal/buildinfo.Version="+version,
 		"-trimpath", "-o", out, "./cmd/angou")
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
