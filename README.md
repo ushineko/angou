@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.1.3
+**Version**: 0.1.4
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -685,24 +685,44 @@ machine" cannot honestly be tested on this one.
 
 ## Changelog
 
+### 0.1.4
+
+- **`angou enc <dir> --all --dry-run`** prints what the scan found and why, and stores
+  nothing. Run it first: the scan is a guess, and this is how you find out whether the
+  guess is any good on your machine before acting on it.
+- **The scan is far less credulous.** Rules resting on a name alone were the problem,
+  and running the previous version against a real home directory is what showed it: it
+  offered eighteen session-state files ending in `.key`, Python's own `secrets.py` and
+  `token.py`, two libssh2 manual pages, a pkg-config file, a PowerShell script, an XSLT
+  stylesheet, five CI configs named `secret-report.yml`, and twenty `.env.example`
+  templates.
+
+  A `.key` or `.pem` is now offered only if it begins with a private-key header, so a
+  certificate and a session handle are both declined. A name merely mentioning a secret
+  must also carry something that looks like an assignment, must not be source code,
+  documentation or a manual page, and must not be binary — without that last condition a
+  PDF matched because its bytes happened to read as `key: value`. Templates are skipped
+  entirely, since showing the shape of a credential is the opposite of being one.
+
+  On that same directory the result went from 140 files to 88, and every remaining match
+  of the weakest rule is a real credential. Those cases are in the tests by name, so a
+  future change to these rules has to argue with them.
+- The container package moved from `lib/` to `internal/`. It was public on the grounds
+  of being "third-party readable", which does not hold: `gpg` already reads a blob body
+  without angou, which serves anyone rather than only someone writing Go. A public
+  package instead commits us to keeping every exported symbol, and nothing had asked for
+  that. Build metadata moved to `internal/buildinfo`, since it had been living in the
+  format's package only because that is where the `-ldflags` path pointed.
+
 ### 0.1.3
 
 - `angou enc <dir> --all` looks through a directory for the kinds of file credentials
-  live in and offers each one; `--auto` takes them without asking, and `--dry-run` shows
-  what it found and why without storing anything. Without a terminal to ask and without
-  `--auto` it refuses, rather than treating silence as consent.
-
-  Where a name alone is not enough it looks at the file, because names alone are what
-  made it useless: run against a real home directory, an earlier version offered
-  eighteen session-state files ending in `.key`, Python's own `secrets.py`, two libssh2
-  manual pages, a pkg-config file, and twenty `.env.example` templates. `.key` and
-  `.pem` files now need a private-key header, a name mentioning a secret needs contents
-  that look like one and must not be source or documentation, and templates are skipped.
-  On the same directory that took the result from 140 files to 88, with every remaining
-  match a real credential.
-
-  An empty result is reported as what it is: the scan knows the usual names and places,
-  not every way a secret can be written down.
+  live in — SSH keys, cloud and cluster credentials, `.env` files, `.netrc`, `.pgpass`,
+  keys and certificates — and offers each one. `--auto` takes them without asking. It
+  skips public keys and does not descend into `node_modules`, `.git` or caches. Without
+  a terminal to ask and without `--auto` it refuses, rather than treating silence as
+  consent. An empty result is reported as what it is: the scan knows the usual names and
+  places, not every way a secret can be written down.
 - `enc` records where a file was, and `dec` offers to put it back there. On a second
   machine that means an SSH key returns to `~/.ssh` rather than landing wherever you are
   standing, with its permissions intact — a key restored over a world-readable file ends
