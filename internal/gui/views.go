@@ -622,6 +622,13 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 	dist.SetText("dist/")
 	key := widget.NewEntry()
 	key.SetPlaceHolder("path to the armored release-signing key")
+	// Prefilled rather than used silently. The path is on screen and editable,
+	// so stashing still names the key deliberately — the user sees which one
+	// before pressing the button, which is the part that matters for a key that
+	// decides what every future bootstrap will trust.
+	if core.SigningKeyPresent() {
+		key.SetText(core.DefaultSigningKeyPath())
+	}
 	keep := widget.NewSelect([]string{"1", "2", "3", "5"}, nil)
 	keep.SetSelected("3")
 
@@ -630,6 +637,19 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 		widget.NewFormItem("Signing key", key),
 		widget.NewFormItem("Versions to keep", keep),
 	)
+
+	// Finding a key here is convenient and is also a finding. install.sh says to
+	// move it offline once the release is made, and a key still sitting in the
+	// config directory is one compromise away from signing binaries the other
+	// machines will install and run.
+	onDisk := container.NewVBox()
+	if core.SigningKeyPresent() {
+		w := widget.NewLabel("A release-signing key is present. Treat this key as an " +
+			"important credential and move it off box if you are not using it.")
+		w.Wrapping = fyne.TextWrapWord
+		w.Importance = widget.WarningImportance
+		onDisk.Add(w)
+	}
 
 	list := widget.NewList(
 		func() int { return len(rels) },
@@ -661,6 +681,7 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 		heading("Release",
 			"Stash built binaries in the store's bootstrap namespace so a bare machine can install one."),
 		form,
+		onDisk,
 		container.NewHBox(
 			widget.NewButtonWithIcon("Stash binaries", theme.UploadIcon(), func() {
 				keepN, _ := strconv.Atoi(keep.Selected)

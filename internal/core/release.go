@@ -50,6 +50,40 @@ func GenerateSigningKey(path string) error {
 	return nil
 }
 
+// DefaultSigningKeyPath is where install.sh puts a generated release-signing
+// key, and so where one is likely to be found.
+//
+// Knowing the path is not the same as using it. Nothing here signs with a key
+// the user did not name: a release-signing key decides which binaries every
+// future bootstrap accepts as genuine, and picking one up off disk because it
+// happened to be there is not a decision a tool should make on someone's
+// behalf. What this enables is telling them where it is.
+func DefaultSigningKeyPath() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "angou", "release-signing.asc")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "angou", "release-signing.asc")
+}
+
+// SigningKeyPresent reports whether a key is sitting at the conventional path.
+//
+// A true answer is worth showing the user for two reasons, and only one of them
+// is convenience: it is also the answer to "is my signing key still on this
+// machine", which install.sh tells them to fix and which is easy to forget
+// having done.
+func SigningKeyPresent() bool {
+	path := DefaultSigningKeyPath()
+	if path == "" {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular()
+}
+
 // StashedBinaries lists what the store's bootstrap namespace currently holds.
 func (s *Session) StashedBinaries() ([]release.Artifact, error) {
 	return release.List(filepath.Join(s.Root(), store.BootstrapDir))
@@ -64,6 +98,14 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 	// error with a hole where the path should be, which tells the user nothing
 	// about which field they left blank.
 	if signingKeyPath == "" {
+		if SigningKeyPresent() {
+			return fmt.Errorf("a release-signing key is required.\n"+
+				"There is one at %s; pass it explicitly:\n"+
+				"    --signing-key %s\n"+
+				"It is not picked up automatically: which key signs a release decides which "+
+				"binaries every future bootstrap trusts, and that is not a choice to make by "+
+				"finding a file", DefaultSigningKeyPath(), DefaultSigningKeyPath())
+		}
 		return errors.New("a release-signing key is required.\n" +
 			"Create one with `angou release --new-signing-key <path>`, and keep it offline")
 	}
