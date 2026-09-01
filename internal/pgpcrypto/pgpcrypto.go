@@ -160,3 +160,89 @@ func (id *Identity) Open(payload []byte, armored bool) ([]byte, error) {
 type nopCloser struct{ io.Writer }
 
 func (nopCloser) Close() error { return nil }
+
+// --- Release signing (spec 001 R5.4, R5.4.1) ---
+//
+// The key that signs release binaries is a separate offline key, never the store
+// identity. The two are kept apart deliberately: if the verification key
+// travelled in the store or in the key bundle, then anyone who obtained the
+// recovery passphrase — or compromised a single machine — could sign a malicious
+// binary that every future bootstrap would accept as genuine.
+
+// SignDetached produces an armored detached signature over message.
+func (id *Identity) SignDetached(message []byte) ([]byte, error) {
+	var out bytes.Buffer
+	if err := openpgp.ArmoredDetachSign(&out, id.entity, bytes.NewReader(message), config()); err != nil {
+		return nil, fmt.Errorf("sign: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// VerifyDetached checks a detached signature over message and returns the
+// fingerprint of the key that made it.
+//
+// The caller compares that fingerprint against the one pinned at build time.
+// Verification alone establishes only that *some* key in the supplied ring
+// signed the message, which is not the question being asked.
+func VerifyDetached(publicKey, message, signature []byte) (string, error) {
+	ring, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(publicKey))
+	if err != nil {
+		return "", fmt.Errorf("parse verification key: %w", err)
+	}
+	signer, err := openpgp.CheckArmoredDetachedSignature(
+		ring, bytes.NewReader(message), bytes.NewReader(signature), config())
+	if err != nil {
+		return "", fmt.Errorf("verify signature: %w", err)
+	}
+	return fmt.Sprintf("%X", signer.PrimaryKey.Fingerprint), nil
+}
+
+// ExportPublic serializes the public half of the identity, armored.
+func (id *Identity) ExportPublic() ([]byte, error) {
+	var out bytes.Buffer
+	w, err := armor.Encode(&out, openpgp.PublicKeyType, nil)
+	if err != nil {
+		return nil, fmt.Errorf("armor public key: %w", err)
+	}
+	if err := id.entity.Serialize(w); err != nil {
+		return nil, fmt.Errorf("serialize public key: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("finalize public key: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// ParseArmoredPrivate reads an armored private key, as exported by an offline
+// release-signing setup.
+func ParseArmoredPrivate(raw []byte) (*Identity, error) {
+	list, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("parse signing key: %w", err)
+	}
+	if len(list) != 1 {
+		return nil, fmt.Errorf("signing key file holds %d keys, expected exactly one", len(list))
+	}
+	if list[0].PrivateKey == nil {
+		return nil, errors.New("signing key file holds no private key")
+	}
+	return &Identity{entity: list[0]}, nil
+}
+
+// ExportArmoredPrivate serializes the identity's private half, armored. It is
+// used to write out a freshly generated release-signing key, which the operator
+// then moves offline.
+func (id *Identity) ExportArmoredPrivate() ([]byte, error) {
+	var out bytes.Buffer
+	w, err := armor.Encode(&out, openpgp.PrivateKeyType, nil)
+	if err != nil {
+		return nil, fmt.Errorf("armor private key: %w", err)
+	}
+	if err := id.entity.SerializePrivateWithoutSigning(w, nil); err != nil {
+		return nil, fmt.Errorf("serialize private key: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("finalize private key: %w", err)
+	}
+	return out.Bytes(), nil
+}

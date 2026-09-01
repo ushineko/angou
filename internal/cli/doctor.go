@@ -14,6 +14,7 @@ import (
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
+	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
 )
 
@@ -47,6 +48,9 @@ func newDoctorCmd() *cobra.Command {
 			report(w, "store directory", dir)
 			reportStore(w, dir)
 			reportKeyBundle(w, dir)
+			if s, err := tryUnlockQuietly(); err == nil {
+				reportBootstrapNamespace(w, dir, s)
+			}
 			reportLocal(w, dir)
 			reportKeyring(w, dir)
 			return nil
@@ -55,6 +59,25 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&oldKey, "old-key", "",
 		"assert that this superseded key fingerprint opens nothing in the store")
 	return cmd
+}
+
+// tryUnlockQuietly opens the store by whichever route needs no interaction, so
+// doctor can report store-level facts when it can and stay silent when it
+// cannot. It never prompts: doctor is what a user runs when something is already
+// confusing, and a diagnostic that stops to ask for a passphrase is a worse
+// diagnostic.
+func tryUnlockQuietly() (*store.Store, error) {
+	dir, err := storeDir()
+	if err != nil {
+		return nil, err
+	}
+	if localkey.Exists(dir) {
+		return unlockLocal(dir)
+	}
+	if global.passphraseFD >= 0 {
+		return openWithRecovery(dir)
+	}
+	return nil, errors.New("no non-interactive route into the store")
 }
 
 // assertOldKeyIsDead is the verification step after an identity rotation
@@ -128,6 +151,23 @@ func reportKeyBundle(w *tabwriter.Writer, dir string) {
 	} else {
 		report(w, "  memory", "sufficient on this machine")
 	}
+}
+
+func reportBootstrapNamespace(w *tabwriter.Writer, dir string, s *store.Store) {
+	if s == nil {
+		return
+	}
+	if floor := s.Meta().VersionFloor; floor != "" {
+		report(w, "version floor", floor+" (older binaries are refused)")
+	} else {
+		report(w, "version floor", "none recorded")
+	}
+	artifacts, err := release.List(filepath.Join(dir, store.BootstrapDir))
+	if err != nil || len(artifacts) == 0 {
+		report(w, "platform binaries", "none — this store cannot bootstrap a bare machine")
+		return
+	}
+	report(w, "platform binaries", fmt.Sprintf("%d across %s", len(artifacts), strings.Join(release.Platforms(filepath.Join(dir, store.BootstrapDir)), ", ")))
 }
 
 func reportLocal(w *tabwriter.Writer, dir string) {

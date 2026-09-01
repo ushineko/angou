@@ -235,6 +235,30 @@ func (s *Store) ExportLocalIdentity() ([]byte, error) {
 // Meta returns a copy of the store metadata.
 func (s *Store) Meta() Meta { return s.meta }
 
+// SetBootstrapSHA256 records the digest of the bootstrap.sh that belongs to this
+// store (R5.8), so alteration of the script other machines will run is
+// detectable from a machine that already holds a trusted angou.
+func (s *Store) SetBootstrapSHA256(digest string) error {
+	s.meta.BootstrapSHA256 = digest
+	return s.writeMeta()
+}
+
+// RaiseVersionFloor records a release version if it is newer than the floor
+// already held (R5.4.2).
+//
+// The floor only ever rises. Signature validity is not freshness: bootstrap/
+// retains several versions and a sync service keeps its own history, so without
+// a floor an attacker with write access can replay an older, validly signed,
+// known-vulnerable binary and obtain execution without touching bootstrap.sh at
+// all.
+func (s *Store) RaiseVersionFloor(version string, newer func(a, b string) int) (bool, error) {
+	if s.meta.VersionFloor != "" && newer(version, s.meta.VersionFloor) <= 0 {
+		return false, nil
+	}
+	s.meta.VersionFloor = version
+	return true, s.writeMeta()
+}
+
 func (s *Store) sealContainer(plaintext []byte, enc container.Encoding) ([]byte, error) {
 	payload, err := s.identity.Seal(plaintext, enc == container.EncodingArmor)
 	if err != nil {

@@ -45,6 +45,8 @@ func Root() *cobra.Command {
 	pf := root.PersistentFlags()
 	pf.StringVar(&global.storeDir, "store", os.Getenv(StoreEnv),
 		"store directory (default $"+StoreEnv+")")
+	pf.BoolVarP(&verbose, "verbose", "v", false,
+		"report what angou is doing on stderr; never discloses secrets or file contents")
 	pf.IntVar(&global.passphraseFD, "passphrase-fd", -1,
 		"read the recovery passphrase from this already-open file descriptor instead of prompting")
 
@@ -62,6 +64,9 @@ func Root() *cobra.Command {
 		newRekeyCmd(),
 		newPasswdCmd(),
 		newPruneCmd(),
+		newReleaseCmd(),
+		newVerifyBootstrapCmd(),
+		newCloneCmd(),
 	)
 	return root
 }

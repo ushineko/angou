@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/store"
+	"github.com/ushineko/angou/lib/container"
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -66,6 +69,11 @@ func newBootstrapCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The real version floor is applied here, where the store can
+			// actually be read (R5.4.2).
+			if err := checkVersionFloor(s, container.Version); err != nil {
+				return err
+			}
 			fingerprint := s.Fingerprint()
 
 			ring, err := keyring.Open()
@@ -77,8 +85,15 @@ func newBootstrapCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "No keyring is available on this machine, so the identity was not\n"+
 						"re-protected here. The store remains reachable with the recovery passphrase.\n"+
 						"Underlying cause: %v\n", err)
+					// The self-test runs on this path too: bootstrap should be
+					// what reports a store it cannot actually use, rather than
+					// the next command the user tries.
+					if err := roundTripSelfTest(s); err != nil {
+						return fmt.Errorf("the store did not pass its round-trip self-test: %w", err)
+					}
 					fmt.Printf("Store %s is usable with the recovery passphrase.\n", dir)
 					fmt.Printf("Identity fingerprint: %s\n", fingerprint)
+					fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
 					return nil
 				}
 				return err
@@ -104,6 +119,7 @@ func newBootstrapCmd() *cobra.Command {
 			if err := selfTest(dir); err != nil {
 				return fmt.Errorf("bootstrap wrote local state but its self-test failed: %w", err)
 			}
+			fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
 
 			fmt.Printf("Bootstrapped %s on this machine.\n", dir)
 			fmt.Printf("Identity fingerprint: %s\n", fingerprint)
@@ -119,6 +135,29 @@ func newBootstrapCmd() *cobra.Command {
 	return cmd
 }
 
+// roundTripSelfTest writes a temporary blob, reads it back, and removes it,
+// confirming the store is actually usable rather than merely openable (R5.9).
+func roundTripSelfTest(s *store.Store) error {
+	probe := make([]byte, 32)
+	if _, err := rand.Read(probe); err != nil {
+		return fmt.Errorf("generate self-test payload: %w", err)
+	}
+	const path = ".angou-selftest"
+	if _, err := s.Put(path, probe, 0o600, 0, "application/octet-stream", container.EncodingArmor); err != nil {
+		return err
+	}
+	env, err := s.Get(path)
+	if err != nil {
+		_ = s.Remove(path)
+		return err
+	}
+	if !bytes.Equal(env.Content, probe) {
+		_ = s.Remove(path)
+		return errors.New("the self-test payload did not round-trip")
+	}
+	return s.Remove(path)
+}
+
 // selfTest confirms the machine can now open the store by the keyring route,
 // so a broken bootstrap is reported by bootstrap rather than by the next
 // command the user runs (R5.9).
@@ -127,8 +166,7 @@ func selfTest(dir string) error {
 	if err != nil {
 		return err
 	}
-	_ = s.List()
-	return nil
+	return roundTripSelfTest(s)
 }
 
 func forgetLocal(dir string) error {

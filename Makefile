@@ -11,7 +11,12 @@ BINDIR=$(shell go env GOPATH)
 MODULE=github.com/ushineko/angou
 VERSION?=$(shell cat VERSION 2>/dev/null || echo dev)
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-LDFLAGS=-w -s -X $(MODULE)/lib/container.Version=$(VERSION) -X $(MODULE)/lib/container.Commit=$(COMMIT)
+# RELEASE_KEY is the fingerprint of the offline release-signing key this build
+# trusts (spec 001 R5.4.1). It is empty for ordinary development builds, which
+# makes them refuse to install a binary from a store rather than trusting any
+# signature they can verify. A real release sets it.
+RELEASE_KEY?=
+LDFLAGS=-w -s -X $(MODULE)/lib/container.Version=$(VERSION) -X $(MODULE)/lib/container.Commit=$(COMMIT) -X $(MODULE)/internal/release.SigningKeyFingerprint=$(RELEASE_KEY)
 
 LINT_NAME?=golangci-lint
 LINT_VERSION?=v2.12.2
@@ -58,7 +63,7 @@ lint: install-lint ## Lint files
 
 .PHONY: shellcheck
 shellcheck: ## Lint the plaintext bootstrap entrypoint (spec 001 R5.6)
-	@shellcheck bootstrap/bootstrap.sh
+	@shellcheck internal/cli/assets/bootstrap.sh
 
 .PHONY: test
 test: ## Run unit tests with the race detector (fast, no build)

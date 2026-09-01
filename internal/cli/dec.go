@@ -26,6 +26,9 @@ func newDecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The size and digest are metadata about the plaintext, never the
+			// plaintext itself.
+			logf("decrypted %s: %d bytes, sha256 %s", env.Path, env.Size, env.SHA256)
 			if out == "" || out == "-" {
 				if _, err := os.Stdout.Write(env.Content); err != nil {
 					return fmt.Errorf("write plaintext to stdout: %w", err)

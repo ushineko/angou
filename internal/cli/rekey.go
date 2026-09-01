@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/passphrase"
 	"github.com/ushineko/angou/internal/prompt"
+	"github.com/ushineko/angou/internal/release"
+	"github.com/ushineko/angou/internal/store"
 )
 
 func newRekeyCmd() *cobra.Command {
@@ -200,8 +203,10 @@ func newPasswdCmd() *cobra.Command {
 
 func newPruneCmd() *cobra.Command {
 	var (
-		bundles bool
-		orphans bool
+		bundles  bool
+		orphans  bool
+		binaries bool
+		keep     int
 	)
 	cmd := &cobra.Command{
 		Use:   "prune",
@@ -214,11 +219,14 @@ func newPruneCmd() *cobra.Command {
 			"--orphans removes blob-shaped files this store's key cannot read, which is what\n" +
 			"an interrupted identity rekey leaves. They are unreadable, not recoverable: if\n" +
 			"you are not certain the rekey finished, run `angou reindex` first and read what\n" +
-			"it reports.",
+			"it reports.\n\n" +
+			"--bootstrap removes superseded platform binaries, keeping --keep per platform. A\n" +
+			"version withdrawn for a vulnerability should be removed this way rather than left\n" +
+			"signed and available, because a signature does not expire.",
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if !bundles && !orphans {
-				return errors.New("say what to prune: --bundles, --orphans, or both")
+			if !bundles && !orphans && !binaries {
+				return errors.New("say what to prune: --bundles, --orphans, --bootstrap, or any combination")
 			}
 			s, err := unlock()
 			if err != nil {
@@ -238,6 +246,16 @@ func newPruneCmd() *cobra.Command {
 					return err
 				}
 				fmt.Println("Kept the key bundle that opens this store and removed the rest.")
+			}
+			if binaries {
+				removed, err := release.Prune(filepath.Join(s.Root(), store.BootstrapDir), keep)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Pruned %d superseded binaries, keeping %d per platform.\n", len(removed), keep)
+				for _, name := range removed {
+					fmt.Printf("  %s\n", name)
+				}
 			}
 			if orphans {
 				removed, misnamed, err := s.PruneOrphans()
@@ -263,5 +281,7 @@ func newPruneCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&bundles, "bundles", false, "remove retained key bundles, leaving only the current one")
 	cmd.Flags().BoolVar(&orphans, "orphans", false, "remove blob-shaped files this store's key cannot read")
+	cmd.Flags().BoolVar(&binaries, "bootstrap", false, "remove superseded platform binaries beyond the retention floor")
+	cmd.Flags().IntVar(&keep, "keep", release.DefaultKeep, "versions to retain per platform with --bootstrap")
 	return cmd
 }

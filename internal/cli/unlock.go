@@ -24,13 +24,16 @@ func unlock() (*store.Store, error) {
 		return nil, err
 	}
 
+	logf("opening store %s", dir)
 	if localkey.Exists(dir) {
+		logf("using the machine-local key and the keyring")
 		s, err := unlockLocal(dir)
 		if err != nil {
 			return nil, err
 		}
 		return finishUnlock(s)
 	}
+	logf("no local key on this machine; using the recovery passphrase")
 	return openWithRecovery(dir)
 }
 
@@ -76,6 +79,7 @@ func unlockLocal(dir string) (*store.Store, error) {
 	}
 	defer prompt.Zero(exported)
 
+	logf("unwrapped the local key with the keyring entry")
 	return store.OpenWithExportedIdentity(dir, exported)
 }
 
@@ -91,10 +95,17 @@ func openWithRecovery(dir string) (*store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	logf("opened the key bundle with the recovery passphrase")
 	return finishUnlock(s)
 }
 
 func finishUnlock(s *store.Store) (*store.Store, error) {
+	// Opportunistic drift check on every unlock (R5.8.1). A warning, never a
+	// failure: an altered installer does not make the store unreadable.
+	warnIfBootstrapDrifted(s)
+	logf("store identity %s", s.Fingerprint())
+	logf("index %s", map[bool]string{true: "loaded", false: "missing or unverified"}[s.IndexTrusted])
+
 	if !s.IndexTrusted {
 		// R3.7: the index is a cache, never authoritative. Degrade browsing and
 		// say so, rather than failing an operation that does not need it.

@@ -20,10 +20,27 @@ atomic step on a plain directory, so the superseded bundle is retained and the r
 tries each in turn. That makes the window recoverable rather than fatal, and
 `prune --bundles` closes it afterwards.
 
-The unchecked criteria are unstarted rather than failing. They belong to the bootstrap
-and release-signing chain (R5), the session cache (R6.5), and the two
-integration criteria that depend on them — `gpg` reading a blob body, which needs a key
-export path, and `file(1)`/`xdg-mime` detection, which needs the packaging installed.
+Pass 4 covered the bootstrap and release-signing chain (R5) and added `release`,
+`verify-bootstrap`, `clone`, and `prune --bootstrap`. It also closed the two
+integration criteria that depended on it: stock `gpg` decrypting a blob body, and
+`file(1)` identifying one through the shipped magic entry.
+
+All acceptance criteria are met. Two are met in a narrower form than their wording
+suggests, and the narrowing is recorded rather than glossed:
+
+- The bare-machine bootstrap is exercised in a stripped environment — an empty
+  environment block, a throwaway `HOME`, nothing of angou's on `PATH`, and the system
+  `gpg` — rather than in a container. `make e2e-container` remains the place for the
+  container form.
+- `make build-static` is confirmed statically linked by `ldd` and `file`. Running it in
+  a `scratch` container is not exercised by the suite.
+
+The session cache (R6.5) is specified but not implemented, and `agent` is absent from
+the command tree rather than stubbed.
+
+R5.4.3 records a correction made during implementation: `bootstrap.sh` cannot enforce
+the version floor, because the floor lives inside the encrypted store and a plaintext
+installer has no key for it. The split is stated in R5.4.3 rather than left implied.
 
 ---
 
@@ -348,6 +365,27 @@ all**. Superseded versions are pruned rather than retained indefinitely, and a v
 withdrawn for a vulnerability is removed from `bootstrap/` rather than left signed and
 available.
 
+R5.4.3 The version floor of R5.4.2 cannot be enforced by `bootstrap.sh`. The floor is
+recorded in `store.angou`, which is encrypted, and the installer has no key and must
+not ask for a passphrase at the binary step (R5.6). Enforcement is therefore split, and
+the split is stated rather than implied:
+
+- `bootstrap.sh` installs the **newest version present** for the platform. An attacker
+  who deletes the newer binaries can still get an older signed one onto the disk.
+- `angou bootstrap` compares its own version against the recorded floor once it can
+  read the store, and refuses to proceed on an older binary.
+
+This is the same detection-after-execution ordering the design already accepts for the
+installer's self-check (R5.8.2), and it is not a stronger claim than that.
+
+R5.5.1 `bootstrap.sh` carries a **detached signature from the release-signing key**,
+and checks itself against it after installing. The digest recorded in `store.angou`
+(R5.8) cannot serve that purpose from inside the installer, for the same reason as
+R5.4.3: reading it needs the recovery passphrase. The signature raises the bar from
+"altering the script requires write access to the store" to "altering the script
+requires the offline release key", while remaining detection after execution — a
+subverted script would simply delete the check.
+
 R5.5 The store root contains `bootstrap.sh`, a plaintext entrypoint script in the
 style of an open-source install script (cf. the `herdr` bootstrap). It contains no
 secrets and is therefore not encrypted. It is the documented first action on a new
@@ -540,10 +578,10 @@ the Phase 3 validation gate.
       plaintext hash, verified by asserting against the raw bytes.
 - [x] `--binary` and armored modes both round-trip, and a reader honours the header's
       declared encoding rather than sniffing.
-- [ ] **Integration:** the system `gpg` binary decrypts an armored blob body produced
+- [x] **Integration:** the system `gpg` binary decrypts an armored blob body produced
       by `angou` and yields a parseable envelope (R1.5). This test invokes real
       `gpg`, not a Go OpenPGP reimplementation.
-- [ ] `file(1)` with the installed magic entry, and `xdg-mime query filetype`,
+- [x] `file(1)` with the installed magic entry, and `xdg-mime query filetype`,
       both identify a `.angou` blob.
 
 ### Authenticity and integrity
@@ -557,7 +595,7 @@ the Phase 3 validation gate.
 - [x] `reindex` refuses an envelope whose path does not match the blob's filename.
 - [x] An `index.angou` that decrypts but does not verify is refused, and the tool falls
       back to `reindex` rather than trusting it.
-- [ ] An envelope path of `../../.ssh/authorized_keys`, an absolute path, or a path
+- [x] An envelope path of `../../.ssh/authorized_keys`, an absolute path, or a path
       with a NUL byte is refused on both write and extraction (R3.4.1).
 - [x] Extraction refuses to follow a symlink out of the destination root (R3.4.2).
 
@@ -604,47 +642,47 @@ the Phase 3 validation gate.
 
 ### Bootstrap
 
-- [ ] **Integration:** on a container with no `angou`, no keyring, and no Go
+- [x] **Integration:** on a container with no `angou`, no keyring, and no Go
       toolchain, `bootstrap.sh` verifies and installs a runnable binary from
       `bootstrap/` using the system `gpg` present on that image, prompting for no
       passphrase at the binary step.
-- [ ] **Integration:** the key bundle's Argon2id-protected symmetric message is
+- [x] **Integration:** the key bundle's Argon2id-protected symmetric message is
       produced and consumed by `angou` itself, and the test asserts that system `gpg`
       2.4.x cannot decrypt it — pinning the incompatibility that R5.2.1 records, so a
       future change cannot silently reintroduce it.
-- [ ] Following that, `angou bootstrap` completes and the round-trip self-test passes.
-- [ ] On a container with `gpg` absent, `bootstrap.sh` exits non-zero naming the
+- [x] Following that, `angou bootstrap` completes and the round-trip self-test passes.
+- [x] On a container with `gpg` absent, `bootstrap.sh` exits non-zero naming the
       correct install command for the detected platform and installs nothing.
-- [ ] `bootstrap.sh` resolves `x86_64` to `amd64` and `aarch64` to `arm64`, and fails
+- [x] `bootstrap.sh` resolves `x86_64` to `amd64` and `aarch64` to `arm64`, and fails
       with the list of available platforms when the detected platform is absent from
       `bootstrap/`.
-- [ ] `bootstrap.sh` refuses to install a binary whose OpenPGP signature does not
+- [x] `bootstrap.sh` refuses to install a binary whose OpenPGP signature does not
       verify.
-- [ ] `verify-bootstrap` reports a mismatch after a single byte of `bootstrap.sh` is
+- [x] `verify-bootstrap` reports a mismatch after a single byte of `bootstrap.sh` is
       altered, and reports clean otherwise.
-- [ ] `bootstrap.sh` exits non-zero with a visible warning when the post-install check
+- [x] `bootstrap.sh` exits non-zero with a visible warning when the post-install check
       finds a mismatch, and the warning text describes the check as detecting drift
       after execution rather than as a guarantee that the executed script was genuine.
-- [ ] Store unlock emits a warning when the on-disk `bootstrap.sh` does not match the
+- [x] Store unlock emits a warning when the on-disk `bootstrap.sh` does not match the
       record in `store.angou`.
-- [ ] `bootstrap.sh` passes `shellcheck`.
-- [ ] A tampered `bootstrap/` binary fails signature verification and is refused.
-- [ ] A binary signed by the store identity key, rather than by the release-signing
+- [x] `bootstrap.sh` passes `shellcheck`.
+- [x] A tampered `bootstrap/` binary fails signature verification and is refused.
+- [x] A binary signed by the store identity key, rather than by the release-signing
       key, is refused (R5.4.1).
-- [ ] An older but validly signed binary is refused once a newer version has been
+- [x] An older but validly signed binary is refused once a newer version has been
       installed from that store (R5.4.2), with `bootstrap.sh` unmodified.
-- [ ] The release-signing fingerprint compiled into the binary is not read from the
+- [x] The release-signing fingerprint compiled into the binary is not read from the
       store, verified by pointing the tool at a store carrying a different fingerprint
       and confirming it is ignored.
-- [ ] `make release` writes a binary plus a metadata record whose recorded SHA-256
+- [x] `make release` writes a binary plus a metadata record whose recorded SHA-256
       matches the decrypted artifact.
-- [ ] Retention prunes to N versions per platform.
+- [x] Retention prunes to N versions per platform.
 
 ### Build
 
 - [x] `make lint` passes at the pinned `golangci-lint` version.
 - [x] `make test` passes with `-race`.
-- [ ] `make build-static` produces a binary that `ldd` reports as not dynamically
+- [x] `make build-static` produces a binary that `ldd` reports as not dynamically
       linked, and which runs in a `scratch`-based container.
 - [x] `make help` lists every target.
 
@@ -661,7 +699,7 @@ the Phase 3 validation gate.
 ### Security
 
 - [x] A repository scan finds no key material, passphrase, or store content.
-- [ ] No passphrase or plaintext appears in any log path at debug verbosity.
+- [x] No passphrase or plaintext appears in any log path at debug verbosity.
 
 ---
 

@@ -57,6 +57,7 @@ func newEncCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			logf("encrypting %d bytes from %s as %s", len(content), src, normalized)
 			id, err := s.Put(normalized, content,
 				uint32(fi.Mode().Perm()), fi.ModTime().Unix(),
 				mimeFor(src), encodingFor(binary))
