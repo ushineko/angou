@@ -61,16 +61,33 @@ not this repository.
 Worth being precise about, since the point of the store is that it lives somewhere you
 do not control.
 
-Someone holding your store, without your passwords, learns **how many** secrets you
-have, roughly **how big** each one is, and **when** you last touched it. That is all.
-They do not learn the filenames, the contents, or the kinds of files involved.
+Someone holding a copy of your store, without your passwords, does not learn the
+filenames, the contents, or what kinds of files they are. What they do learn:
 
-They also cannot make you run something. The binaries in the store are encrypted and
-signed, so tampering with them is caught. The one exception is `bootstrap.sh`, which is
-plaintext by necessity — something has to run before the program exists. Its hash is
-recorded inside the encrypted store, so `angou verify-bootstrap` from any machine you
-have already set up will tell you if it changed. The first machine to run a modified
-copy is not protected, and no plaintext installer anywhere can protect it.
+- how many secrets you have, and roughly how big each one is;
+- **which one is which, over time.** Each file keeps the same scrambled name for as
+  long as it exists, so someone watching your store across weeks can follow one
+  particular file — see that it changes every Friday, or that you touched it the day
+  something happened — without ever learning what it is;
+- when you add, delete or rename something;
+- which operating systems you run, from the installers the store carries.
+
+Rotating your identity with `angou rekey --identity` renames everything and breaks that
+tracking, which is part of why it is the right response to a lost machine.
+
+Someone who can **write** to your store — not just read it — is a different problem.
+They cannot forge a secret, because everything is signed and each file is bound to its
+own name. But they can put back an older copy of something you already had: undo a
+password rotation, or restore a key you deleted. Your sync service's own version
+history is the defense there, and `angou` does not add another.
+
+They also cannot make you run something. The program the store carries is encrypted,
+signed by a key that is kept offline, and refused if it is older than the newest version
+you have already installed — so an old signed copy cannot be quietly put back either.
+The one exception is `bootstrap.sh`, which is plaintext by necessity, because something
+has to run before the program exists. Its hash is recorded inside the store and
+published on GitHub, so you can check it before running it on your first machine and
+`angou verify-bootstrap` will catch a change from any machine you have already set up.
 
 ## Two passwords, two jobs
 
@@ -223,6 +240,10 @@ machine" cannot honestly be tested on this one.
   commits at the end, so an interruption leaves the original intact.
 - **A conflicted copy of the index is harmless.** The blobs are the truth and the
   listing is rebuilt from them. If two machines write at once, run `angou reindex`.
+- **Once a store is unlocked, anything running as you can use it.** The session cache
+  keeps the store open for a while so you are not retyping passwords; during that time
+  a program running under your own account can ask it to decrypt. This is true of ssh-agent
+  and every password manager too, and it is not something `angou` tries to solve.
 - **Don't put the store in this repository, or in any repository.** It is ignored here
   as a backstop, not as a plan.
 

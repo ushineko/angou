@@ -50,12 +50,30 @@ emits raw OpenPGP packets for large inputs. The header declares which encoding i
 use; readers never infer it.
 
 R1.3 The plaintext header carries only dispatch data: format magic, format version,
-payload encoding, and the recipient key fingerprint. It MUST NOT carry the original
-filename, plaintext size, or any hash of the plaintext.
+and payload encoding. It MUST NOT carry the original filename, plaintext size, any hash
+of the plaintext, or the recipient key fingerprint. A fingerprint in the clear is a
+stable correlation handle that links every blob in every store to one identity, which
+is a leak the header does not need to accept: a store holds one keypair (R2.1), so the
+reader trial-decrypts rather than being told which key to use.
 
 R1.4 Descriptive metadata — original name, MIME type, POSIX mode, mtime, size, and
 plaintext SHA-256 — is carried in an envelope inside the encrypted payload. The
 envelope is authoritative for a blob's identity.
+
+R1.7 Every payload is **signed as well as encrypted** (sign-then-encrypt), and readers
+MUST verify the signature before acting on the plaintext. Encrypting to a public key
+proves only that the writer knew the public key; it says nothing about who wrote the
+blob. Without a signature, anyone with write access to the store can author a blob or
+an `index.angou` that decrypts cleanly and is treated as genuine. The plaintext
+SHA-256 in the envelope does not help, because an attacker who authors the blob also
+chooses that hash.
+
+R1.8 A reader MUST reject a blob whose filename does not equal
+`HMAC-SHA256(K_name, envelope.path)` (R3.2). Without this binding, an attacker who can
+rename files in the store serves the contents of one secret under the name of another
+— every signature verifies, every hash matches, and the wrong secret is returned with
+no error. The name-to-content binding is a separate control from the signature and
+neither substitutes for the other.
 
 R1.5 The payload is a standard OpenPGP message. `gpg --decrypt` on a blob body must
 yield the envelope without requiring `angou`. This is a recovery guarantee, not an
@@ -77,6 +95,23 @@ R2.2 Two distinct passphrases wrap that keypair:
   identical on every machine.
 - **Unlock passphrase** — 32 bytes from a CSPRNG, generated at bootstrap, never
   displayed to the user. Wraps the keypair in the local keyring only.
+
+R2.2.1 The recovery passphrase is the single offline cracking target in this design.
+Anyone with **read** access to the store can copy the key bundle and the `bootstrap/`
+namespace and guess against them offline, without limit and without detection. Its
+protection is therefore pinned explicitly and not left to OpenPGP defaults:
+
+- The recovery passphrase does not encrypt the bundle directly. It derives a wrapping
+  key via **Argon2id** with parameters recorded in the clear beside the ciphertext
+  (initially m=1 GiB, t=4, p=4, 16-byte salt), and that key wraps a random 32-byte
+  bootstrap key which does the actual encryption.
+- Cipher and AEAD are pinned (AES-256, OCB where available, otherwise AES-256-CFB with
+  MDC) rather than inherited from the implementation's defaults.
+- Recorded parameters are validated on read: a bundle presenting parameters weaker than
+  the pinned floor is refused, so an attacker cannot downgrade the KDF by editing the
+  header.
+- `angou init` MUST refuse a low-entropy recovery passphrase and offers to generate a
+  diceware phrase of at least 77 bits. The generated phrase is displayed exactly once.
 
 R2.3 The unlock passphrase MUST NOT be derived from the hostname, `/etc/machine-id`,
 or any other host-identifying value. Derivation from host data would make the local
@@ -114,6 +149,19 @@ R3.4 Blob names MUST NOT be an unkeyed hash of the filename. Filenames are
 low-entropy; an unkeyed hash permits an offline dictionary attack (`.env`, `id_rsa`,
 `aws-credentials`) that reveals store contents without any key.
 
+R3.4.1 `normalized_path` is defined strictly, and the definition is a security
+control rather than a convenience. A path MUST be relative, use `/` separators, contain
+no `.` or `..` component, no leading `/`, no drive letter or UNC prefix, no NUL or
+control characters, and no trailing separator; it is NFC-normalized and rejected rather
+than silently repaired when it does not conform. Writers and readers apply the same
+grammar.
+
+R3.4.2 On extraction, the tool MUST resolve the destination under an explicit root and
+refuse to write outside it, and MUST NOT follow symlinks when doing so. An envelope
+path is attacker-controlled input in the write-access threat model (R-9): without this,
+an envelope naming `../../.ssh/authorized_keys` turns a decrypt into an arbitrary file
+write.
+
 R3.5 The store is keyed by store-relative path, not basename, so identically-named
 files from different projects do not collide. The GUI renders these paths as a tree.
 
@@ -124,8 +172,22 @@ R3.7 The index is a rebuildable cache and is never authoritative. `angou reindex
 reconstructs it from blob envelopes. A corrupt, conflicted, or absent index degrades
 browsing only; retrieval by name is unaffected because it goes through R3.2.
 
-R3.8 Accepted leak surface for a store on third-party infrastructure: blob count,
-approximate sizes, and mtimes.
+R3.8 Accepted leak surface for a store on third-party infrastructure. Enumerated
+honestly, because deterministic naming leaks more than a count:
+
+- The number of secrets, and the approximate size of each.
+- A **stable pseudonymous identity per file**. Because `blob_id` is deterministic
+  (R3.2), an observer watching the store over time can follow one specific file across
+  snapshots — when it changes, how often, and in what pattern — without ever learning
+  its name. This is the significant leak, and it is the price of the determinism that
+  makes updates land in place.
+- Additions, deletions, and renames, each visible as a name appearing or disappearing.
+- Growth of `index.angou`, which tracks the number of entries.
+- The contents of `bootstrap/`: which operating systems and architectures are in use,
+  and the release history of the tool.
+
+Padding, size bucketing, and blob-count obfuscation are out of scope. `K_name`
+rotation (R4.2.1) breaks the per-file identity chain at each identity rekey.
 
 ### R4 — Rotation and rekey
 
@@ -136,6 +198,21 @@ R4.2 `angou rekey --identity` generates a new keypair, re-encrypts every blob an
 `store.angou` to it, and writes a new key bundle. This is the response to a genuinely
 compromised machine, where the attacker holds the keypair and R4.1 provides no
 protection.
+
+R4.2.1 `rekey --identity` MUST also generate a fresh `K_name`, recompute every
+`blob_id`, rename every blob accordingly, and rebuild the index. Rotating the keypair
+while leaving `K_name` intact leaves the attacker able to continue tracking which
+logical paths exist, which change, and how often — the deterministic names are a
+metadata channel that survives an identity rotation unless the naming key rotates with
+it. Metadata rotation is part of compromise recovery, not a separate operation.
+
+R4.4 `docs/compromise-recovery.md` documents the full response to a lost or
+compromised machine, because `rekey --identity` alone is insufficient: a stolen machine
+may still hold a sync-service session token, the local keyring, an unlocked wallet, a
+running agent, and possibly an observed recovery passphrase. The runbook covers, in
+order — revoke sync-service sessions and devices; rotate the recovery passphrase;
+`rekey --identity` (which rotates `K_name` per R4.2.1); prune superseded key bundles
+and `bootstrap/` versions; and invalidate agents on every other machine.
 
 R4.3 `rekey --identity` is transactional against a store that may be mid-sync: it
 writes to a staging directory and commits by rename, so an interrupted rekey leaves
@@ -157,6 +234,25 @@ record capturing version, git commit, Go toolchain version, build flags, and SHA
 R5.4 Binaries are encrypted and OpenPGP-signed. They MUST NOT be stored in plaintext:
 a plaintext executable in a synced directory turns write access to the sync account
 into arbitrary code execution on every machine subsequently bootstrapped.
+
+R5.4.1 The key that signs release binaries is a **separate offline release-signing
+key**, not the store identity keypair. Its public fingerprint is compiled into the
+`angou` binary and stated in `bootstrap.sh`. Store contents MUST NOT determine
+release-signing trust: if the verification key travelled in the store or the key
+bundle, then anyone who obtained the recovery passphrase — or compromised one machine —
+could sign a malicious binary that every future bootstrap would accept as genuine. The
+release key is used only at `make release`, never by the tool at runtime, and lives
+offline.
+
+R5.4.2 Binaries carry a **version floor**. `store.angou` records the highest release
+version ever installed from this store, and `bootstrap.sh` and `angou bootstrap` refuse
+a binary older than that floor. Signature verification alone does not establish
+freshness: `bootstrap/` retains several versions (R5.10) and a sync service keeps its
+own history, so an attacker with write access can replay an older, validly signed,
+known-vulnerable binary and obtain execution **without modifying `bootstrap.sh` at
+all**. Superseded versions are pruned rather than retained indefinitely, and a version
+withdrawn for a vulnerability is removed from `bootstrap/` rather than left signed and
+available.
 
 R5.5 The store root contains `bootstrap.sh`, a plaintext entrypoint script in the
 style of an open-source install script (cf. the `herdr` bootstrap). It contains no
@@ -207,6 +303,14 @@ import key and ownertrust → generate unlock passphrase and re-protect (R2.2, s
 to R2.5) → write wallet entry → install MIME, magic, and desktop files → round-trip
 self-test on a temporary file.
 
+R5.9.1 The store alone cannot establish the integrity of `bootstrap.sh` on a first
+bootstrap, because the hash that would verify it (R5.8) is inside the store and reading
+it requires the code being verified. The out-of-band anchor is the public repository:
+release fingerprints and the `bootstrap.sh` hash for each release are published at
+`github.com/ushineko/angou`, so a user setting up their first machine can compare
+before executing. Store-only bootstrap MUST be described as recovering
+**confidentiality**, not as establishing first-run code integrity.
+
 R5.10 `bootstrap/` retains at most N versions per platform (default 3) so binary
 history does not grow without bound in the synced directory. `angou clone
 --no-binaries` produces a store copy omitting the namespace.
@@ -236,7 +340,10 @@ R6.5 Because there is no `gpg-agent`, `angou agent` provides session caching: a 
 socket in `$XDG_RUNTIME_DIR` at 0600 holding unlocked key material, `K_name`, and the
 decrypted index under a TTL. Secret buffers are explicitly zeroed and `mlockall` is
 attempted. Go's garbage collector may relocate heap secrets, so memory hardening is
-best-effort and is documented as such rather than claimed.
+best-effort and is documented as such rather than claimed. The socket mode excludes
+other users only; it is not a boundary against processes running as the same user, and
+the agent MUST NOT be described as providing one (R-10). The agent verifies peer
+credentials, keeps its API minimal, and defaults to a short TTL.
 
 R6.6 Package layout:
 
@@ -321,8 +428,29 @@ the Phase 3 validation gate.
 - [ ] `file(1)` with the installed magic entry, and `xdg-mime query filetype`,
       both identify a `.angou` blob.
 
+### Authenticity and integrity
+
+- [ ] A blob whose signature does not verify is refused, and the plaintext is not
+      written to disk or stdout (R1.7).
+- [ ] A blob re-encrypted to the store's public key by a party without the signing key
+      is refused on read.
+- [ ] A blob renamed to another blob's `blob_id` is refused rather than returned under
+      the wrong name (R1.8).
+- [ ] `reindex` refuses an envelope whose path does not match the blob's filename.
+- [ ] An `index.angou` that decrypts but does not verify is refused, and the tool falls
+      back to `reindex` rather than trusting it.
+- [ ] An envelope path of `../../.ssh/authorized_keys`, an absolute path, or a path
+      with a NUL byte is refused on both write and extraction (R3.4.1).
+- [ ] Extraction refuses to follow a symlink out of the destination root (R3.4.2).
+
 ### Key model
 
+- [ ] The key bundle's Argon2id parameters are recorded beside the ciphertext, and a
+      bundle presenting parameters below the pinned floor is refused (R2.2.1).
+- [ ] `init` refuses a low-entropy recovery passphrase and its generated phrase carries
+      at least 77 bits of entropy.
+- [ ] The plaintext header of a blob contains no key fingerprint, and decryption
+      succeeds without one (R1.3).
 - [ ] Bootstrap generates an unlock passphrase from `crypto/rand` that appears in no
       log, no terminal output, and no file other than the wallet entry.
 - [ ] Two bootstraps of the same key bundle produce different unlock passphrases.
@@ -351,6 +479,10 @@ the Phase 3 validation gate.
       and none under the old.
 - [ ] `rekey --identity` interrupted mid-run (process killed) leaves the original store
       fully readable.
+- [ ] `rekey --identity` changes every `blob_id`, so no filename in the new store
+      appears in the old one (R4.2.1).
+- [ ] After `rekey --identity`, the old `K_name` computes no filename present in the
+      store.
 
 ### Bootstrap
 
@@ -374,6 +506,13 @@ the Phase 3 validation gate.
       record in `store.angou`.
 - [ ] `bootstrap.sh` passes `shellcheck`.
 - [ ] A tampered `bootstrap/` binary fails signature verification and is refused.
+- [ ] A binary signed by the store identity key, rather than by the release-signing
+      key, is refused (R5.4.1).
+- [ ] An older but validly signed binary is refused once a newer version has been
+      installed from that store (R5.4.2), with `bootstrap.sh` unmodified.
+- [ ] The release-signing fingerprint compiled into the binary is not read from the
+      store, verified by pointing the tool at a store carrying a different fingerprint
+      and confirming it is ignored.
 - [ ] `make release` writes a binary plus a metadata record whose recorded SHA-256
       matches the decrypted artifact.
 - [ ] Retention prunes to N versions per platform.
@@ -445,15 +584,39 @@ takes no network input (R5.7), is short enough to read before running, and its h
 pinned inside the encrypted store so tampering is detectable out-of-band from any
 already-provisioned machine (R5.8.1).
 
-The load-bearing property is R5.4. Because the binaries are encrypted and signed, an
-attacker cannot achieve execution by modifying them alone — they are forced to also
-modify `bootstrap.sh`. All possible tampering is therefore funnelled into a single
-small, readable, hash-pinned plaintext file, which is the cheapest artifact to inspect
-and to monitor.
+R5.4 raises the cost of the alternative path but does not close it, and an earlier
+draft of this section overstated the position. Encrypting and signing the binaries stops
+an attacker from *authoring* a malicious one, but signature validity is not freshness:
+without R5.4.2's version floor, replaying an older validly signed binary from
+`bootstrap/` or from the sync service's own history yields execution with
+`bootstrap.sh` untouched. With the version floor in place, the claim holds in its
+narrower form — an attacker cannot install a binary that is either unsigned or older
+than the floor, so modifying `bootstrap.sh` becomes the remaining path, and tampering is
+funnelled into a single small, readable, hash-pinned plaintext file. The strong version
+of the claim depends on R5.4.2, not on R5.4 alone.
 
 The first machine to run a subverted script is not protected. No plaintext entrypoint
 can protect it, and no placement of a self-check within the script changes this
 (R5.8.3).
+
+**R-9 — A writable store permits rollback and denial of service.** Anyone who can
+write to the store — a sync-service operator, or someone with the account — can replace
+a current blob with an older, still-valid, still-signed ciphertext, or simply delete
+blobs. The tool will accept the older version: it decrypts, its signature verifies, and
+its name binding holds, because it was genuine when it was written. The practical
+consequence is that a secret rotation can be silently undone, or a deleted key
+resurrected. Accepted and documented rather than mitigated. Freshness would require a
+signed manifest carrying monotonic store epochs and per-blob generations, anchored
+against local last-seen state; that machinery is disproportionate for a
+single-operator personal store and is deliberately deferred. Users who need it should
+rely on the sync service's own version history and audit log.
+
+**R-10 — The agent gives no protection against same-user malware.** The `0600` socket
+excludes other users, not other processes running as you. Anything running under your
+UID after unlock can connect within the TTL and request decryption or read cached
+material; `mlockall` and buffer zeroing (R6.5) do not change this. Same-UID compromise
+after unlock is explicitly out of scope. Mitigations are limited to keeping the agent
+API small, verifying peer credentials, and keeping the TTL short.
 
 **Rollback**: the tool is a new, self-contained subproject with no existing consumers.
 Rollback is removal of `~/.local/bin/angou*` and the installed MIME, magic, and
@@ -512,5 +675,16 @@ browsed on a machine not trusted with its contents, which is not a use case here
 ## Open Items
 
 None blocking implementation. Deferred by decision: the macOS Keychain keyring backend
-(R2.5 covers the interim). The macOS bootstrap first step, previously open, is closed by
-R5.6.
+(R2.5 covers the interim), and freshness/anti-rollback machinery for the store itself
+(R-9 — accepted and documented rather than built). The macOS bootstrap first step,
+previously open, is closed by R5.6.
+
+**Review history.** A security-focused design review (Codex, 2026-08-31) produced seven
+blocking and four advisory findings against the draft preceding this revision. All were
+accepted. The substantive changes: pinned Argon2id parameters for the recovery
+passphrase (R2.2.1); signing of payloads and binding of `blob_id` to `envelope.path`
+(R1.7, R1.8); `K_name` rotation on identity rekey (R4.2.1); a separate offline
+release-signing key (R5.4.1); a version floor against signed-binary rollback (R5.4.2);
+a strict path grammar (R3.4.1, R3.4.2); an honest leak enumeration (R3.8); and the
+correction of an overstated claim in R-8, which had asserted that signing the binaries
+forced an attacker to modify `bootstrap.sh` when binary rollback in fact bypassed it.
