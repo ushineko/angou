@@ -89,10 +89,26 @@ claims depend on it. No change in this spec may make the CLI require CGO.
 **R2.1** The GUI is a separate binary, `cmd/angou-gui`, built by `make build-gui` with
 `CGO_ENABLED=1`.
 
-**R2.2** `make build-all` and `angou release` continue to stash the static CLI only.
-The GUI is not a bootstrap artifact: a bare machine recovers with the CLI, and putting
-a binary that needs OpenGL and libX11 into the recovery path would weaken the one
-guarantee the store makes about getting itself open again.
+**R2.2** The store may carry the GUI, and recovery never depends on it.
+
+`angou release` stashes both artifacts, named by kind: `angou-<os>-<arch>-<version>` and
+`angou-gui-<os>-<arch>-<version>`. `bootstrap.sh` installs the CLI and skips the rest, so
+a bare machine is still recovered by a static binary that needs nothing — which is what
+the original form of this requirement was protecting. The GUI living in the namespace
+does not change that; requiring it would.
+
+**R2.2.1** The GUI is stashed for the host platform only. It needs CGO, so cross-
+compiling it would need a C toolchain per target, while the CLI cross-compiles with
+`CGO_ENABLED=0` for all four. A store therefore carries the CLI for every platform and
+the GUI for the platforms someone has actually built on. `make build-all` builds the
+host's GUI and reports it if it cannot, rather than failing the CLI builds with it.
+
+**R2.2.2** The two prefixes overlap — `angou-gui-…` also begins `angou-`. Everything
+that parses these names tests the longer prefix first, or it reads a GUI build as a CLI
+build for a platform called `gui`. That applies to `release.ParseBinaryName`, the
+`platformOf` used when stashing, and the two globs in `bootstrap.sh`; retention is
+counted per kind as well as per platform, so a GUI build cannot evict the CLI a bare
+machine needs.
 
 **R2.3** The GUI's runtime dependencies are stated in `README.md`. A user who installs
 only the CLI must be able to tell from the documentation that they have given up

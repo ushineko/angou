@@ -63,7 +63,7 @@ lint: install-lint ## Lint files
 
 .PHONY: shellcheck
 shellcheck: ## Lint the plaintext bootstrap entrypoint (spec 001 R5.6)
-	@shellcheck internal/cli/assets/bootstrap.sh
+	@shellcheck internal/core/assets/bootstrap.sh
 
 .PHONY: test
 test: ## Run unit tests with the race detector (fast, no build)
@@ -103,7 +103,7 @@ build-gui: ## Build the desktop navigator (requires CGO)
 	CGO_ENABLED=1 go build -ldflags='$(LDFLAGS)' -trimpath -o angou-gui ./cmd/angou-gui
 
 .PHONY: build-all
-build-all: ## Build static CLI binaries for every supported platform
+build-all: ## Build static CLI binaries for every platform, plus the host's GUI
 	@set -e; for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
 		os=$${p%/*}; arch=$${p#*/}; \
 		echo "building $$os/$$arch ..."; \
@@ -111,6 +111,18 @@ build-all: ## Build static CLI binaries for every supported platform
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
 			go build -ldflags='$(LDFLAGS)' -trimpath -o dist/angou-$$os-$$arch ./cmd/angou; \
 	done
+	@# The GUI is built for this machine only. It needs CGO, so cross-compiling
+	@# it would need a C toolchain per target -- a store therefore carries a GUI
+	@# for the platforms someone has actually built on, and the CLI for all of
+	@# them. Nothing about recovery depends on the difference: bootstrap.sh
+	@# installs the CLI and skips these.
+	@echo "building the GUI for this host ..."; \
+	if CGO_ENABLED=1 go build -ldflags='$(LDFLAGS)' -trimpath \
+		-o dist/angou-gui-$$(go env GOOS)-$$(go env GOARCH) ./cmd/angou-gui; then \
+		echo "  built dist/angou-gui-$$(go env GOOS)-$$(go env GOARCH)"; \
+	else \
+		echo "  the GUI did not build; the CLI binaries are unaffected" >&2; \
+	fi
 	@ls -l dist/
 
 .PHONY: release

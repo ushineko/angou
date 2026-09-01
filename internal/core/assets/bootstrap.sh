@@ -54,6 +54,11 @@ available_platforms() {
         name="$(basename "$path")"
         case "$name" in
             *.sig | *.json) continue ;;
+            # The store may also carry the desktop GUI. It is not what a bare
+            # machine is recovered with -- it needs CGO, OpenGL and a display
+            # server -- and its name starts with the same prefix, so without
+            # this it would be read as a CLI build for the platform "gui".
+            angou-gui-*) continue ;;
         esac
         printf '%s\n' "$name" |
             sed -n 's/^angou-\([a-z]*\)-\([a-z0-9]*\)-.*$/\1\/\2/p'
@@ -112,6 +117,7 @@ newest_binary() {
         name="$(basename "$path")"
         case "$name" in
             *.sig | *.json) continue ;;
+            angou-gui-*) continue ;;
         esac
         version="${name#angou-"$1"-}"
         if [ -z "$best_name" ] || version_gt "$version" "$best_version"; then

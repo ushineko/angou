@@ -112,11 +112,11 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 		if de.IsDir() {
 			continue
 		}
-		goos, goarch, ok := platformOf(de.Name())
+		kind, goos, goarch, ok := platformOf(de.Name())
 		if !ok {
 			continue
 		}
-		if err := stashOne(filepath.Join(dist, de.Name()), bootstrapDir, goos, goarch, signer); err != nil {
+		if err := stashOne(filepath.Join(dist, de.Name()), bootstrapDir, kind, goos, goarch, signer); err != nil {
 			return err
 		}
 		stashed++
@@ -167,12 +167,12 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 	return nil
 }
 
-func stashOne(src, bootstrapDir, goos, goarch string, signer *pgpcrypto.Identity) error {
+func stashOne(src, bootstrapDir string, kind release.Kind, goos, goarch string, signer *pgpcrypto.Identity) error {
 	binary, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src, err)
 	}
-	name := release.BinaryName(goos, goarch, buildinfo.Version)
+	name := release.BinaryName(kind, goos, goarch, buildinfo.Version)
 	target := filepath.Join(bootstrapDir, name)
 
 	if err := os.WriteFile(target, binary, 0o755); err != nil { //nolint:gosec // an executable must be executable
@@ -191,7 +191,7 @@ func stashOne(src, bootstrapDir, goos, goarch string, signer *pgpcrypto.Identity
 		Version:    buildinfo.Version,
 		Commit:     buildinfo.Commit,
 		Toolchain:  runtime.Version(),
-		BuildFlags: "-ldflags='-w -s' -trimpath CGO_ENABLED=0",
+		BuildFlags: buildFlagsFor(kind),
 		GOOS:       goos,
 		GOARCH:     goarch,
 		SHA256:     hex.EncodeToString(sum[:]),
@@ -209,16 +209,36 @@ func stashOne(src, bootstrapDir, goos, goarch string, signer *pgpcrypto.Identity
 
 // platformOf reads the GOOS and GOARCH out of a built binary's filename, which
 // build-all writes as angou-<goos>-<goarch>.
-func platformOf(name string) (goos, goarch string, ok bool) {
-	rest, found := strings.CutPrefix(name, "angou-")
+// platformOf reads a built binary's filename in dist/.
+//
+// Longest prefix first, for the same reason as ParseBinaryName: "angou-gui-..."
+// also starts with "angou-", and testing the short one first would file every
+// GUI build under the platform "gui".
+func platformOf(name string) (kind release.Kind, goos, goarch string, ok bool) {
+	kind = release.KindGUI
+	rest, found := strings.CutPrefix(name, string(release.KindGUI)+"-")
 	if !found {
-		return "", "", false
+		kind = release.KindCLI
+		rest, found = strings.CutPrefix(name, string(release.KindCLI)+"-")
+	}
+	if !found {
+		return "", "", "", false
 	}
 	parts := strings.Split(rest, "-")
 	if len(parts) != 2 {
-		return "", "", false
+		return "", "", "", false
 	}
-	return parts[0], parts[1], true
+	return kind, parts[0], parts[1], true
+}
+
+// buildFlagsFor records how each artifact was built. They differ in the one way
+// that matters to someone deciding whether to trust a binary on a bare machine:
+// the CLI is built without CGO and links statically, the GUI is not and cannot.
+func buildFlagsFor(kind release.Kind) string {
+	if kind == release.KindGUI {
+		return "-ldflags='-w -s' -trimpath CGO_ENABLED=1"
+	}
+	return "-ldflags='-w -s' -trimpath CGO_ENABLED=0"
 }
 
 // signBootstrapScript writes a detached signature beside the installer.

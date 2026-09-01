@@ -64,7 +64,7 @@ func isReleaseBinary(rel string) bool {
 		return false
 	}
 	base := strings.TrimSuffix(strings.TrimSuffix(name, release.SignatureSuffix), release.MetadataSuffix)
-	_, _, _, ok := release.ParseBinaryName(base)
+	_, _, _, _, ok := release.ParseBinaryName(base)
 	return ok
 }
 

@@ -60,6 +60,7 @@ type Metadata struct {
 // Artifact is one stashed binary and its companions.
 type Artifact struct {
 	Name     string
+	Kind     Kind
 	Version  string
 	GOOS     string
 	GOARCH   string
@@ -69,22 +70,49 @@ type Artifact struct {
 // Platform is the GOOS/GOARCH pair a binary targets.
 func (a Artifact) Platform() string { return a.GOOS + "/" + a.GOARCH }
 
-// BinaryName builds the stashed filename for a platform and version.
-func BinaryName(goos, goarch, version string) string {
-	return fmt.Sprintf("angou-%s-%s-%s", goos, goarch, version)
+// Kind distinguishes the two artifacts a store can carry.
+//
+// They are not interchangeable and only one of them is part of recovery: the
+// CLI is static and needs nothing, while the GUI needs CGO, OpenGL and a
+// display server. bootstrap.sh installs the CLI and ignores the rest, which is
+// what keeps spec 002 R2.2 true — the GUI may live in the namespace, but
+// nothing about getting a bare machine open depends on it.
+type Kind string
+
+const (
+	// KindCLI is the static command-line binary, the one bootstrap installs.
+	KindCLI Kind = "angou"
+	// KindGUI is the desktop front end. It cannot be cross-compiled, so a store
+	// carries it only for the platforms someone has actually built it on.
+	KindGUI Kind = "angou-gui"
+)
+
+// BinaryName builds the stashed filename for a kind, platform and version.
+//
+// KindGUI is spelled "angou-gui", so the two prefixes overlap and the longer
+// one has to be tested first when parsing. That is the price of a filename that
+// reads correctly; the alternative was a separator no one would guess.
+func BinaryName(kind Kind, goos, goarch, version string) string {
+	return fmt.Sprintf("%s-%s-%s-%s", kind, goos, goarch, version)
 }
 
 // ParseBinaryName recovers the platform and version from a stashed filename.
-func ParseBinaryName(name string) (goos, goarch, version string, ok bool) {
-	rest, found := strings.CutPrefix(name, "angou-")
+func ParseBinaryName(name string) (kind Kind, goos, goarch, version string, ok bool) {
+	// Longest prefix first: "angou-gui-..." also starts with "angou-".
+	kind = KindGUI
+	rest, found := strings.CutPrefix(name, string(KindGUI)+"-")
 	if !found {
-		return "", "", "", false
+		kind = KindCLI
+		rest, found = strings.CutPrefix(name, string(KindCLI)+"-")
+	}
+	if !found {
+		return "", "", "", "", false
 	}
 	parts := strings.SplitN(rest, "-", 3)
 	if len(parts) != 3 {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
-	return parts[0], parts[1], parts[2], true
+	return kind, parts[0], parts[1], parts[2], true
 }
 
 // Digest returns the hex SHA-256 of a file.
@@ -112,17 +140,20 @@ func List(dir string) ([]Artifact, error) {
 		if de.IsDir() || strings.HasSuffix(name, SignatureSuffix) || strings.HasSuffix(name, MetadataSuffix) {
 			continue
 		}
-		goos, goarch, version, ok := ParseBinaryName(name)
+		kind, goos, goarch, version, ok := ParseBinaryName(name)
 		if !ok {
 			continue
 		}
-		a := Artifact{Name: name, Version: version, GOOS: goos, GOARCH: goarch}
+		a := Artifact{Name: name, Kind: kind, Version: version, GOOS: goos, GOARCH: goarch}
 		if raw, err := os.ReadFile(filepath.Join(dir, name+MetadataSuffix)); err == nil {
 			_ = json.Unmarshal(raw, &a.Metadata)
 		}
 		out = append(out, a)
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
 		if out[i].Platform() != out[j].Platform() {
 			return out[i].Platform() < out[j].Platform()
 		}
@@ -146,11 +177,15 @@ func Prune(dir string, keep int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Retention is per kind as well as per platform. Counting them together
+	// would let a GUI build evict the CLI for the same platform, and the CLI is
+	// the one a bare machine needs.
 	seen := map[string]int{}
 	var removed []string
 	for _, a := range artifacts {
-		seen[a.Platform()]++
-		if seen[a.Platform()] <= keep {
+		key := string(a.Kind) + " " + a.Platform()
+		seen[key]++
+		if seen[key] <= keep {
 			continue
 		}
 		for _, suffix := range []string{"", SignatureSuffix, MetadataSuffix} {
@@ -171,7 +206,10 @@ func Find(dir, goos, goarch string) (Artifact, error) {
 		return Artifact{}, err
 	}
 	for _, a := range artifacts {
-		if a.GOOS == goos && a.GOARCH == goarch {
+		// The CLI only: this is what bootstrap installs, and installing a GUI
+		// on a machine being recovered would be the wrong binary even where it
+		// happened to run.
+		if a.Kind == KindCLI && a.GOOS == goos && a.GOARCH == goarch {
 			return a, nil
 		}
 	}
@@ -185,6 +223,9 @@ func Platforms(dir string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, a := range artifacts {
+		if a.Kind != KindCLI {
+			continue // the question is which platforms can be bootstrapped
+		}
 		if !seen[a.Platform()] {
 			seen[a.Platform()] = true
 			out = append(out, a.Platform())

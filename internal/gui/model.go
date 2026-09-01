@@ -71,6 +71,9 @@ type DoctorGroup struct {
 
 // ReleaseEntry is one stashed binary in the bootstrap namespace.
 type ReleaseEntry struct {
+	// Kind is "angou" or "angou-gui". Without it a GUI row reads as a second,
+	// mysteriously larger CLI entry for the same platform.
+	Kind     string
 	Platform string
 	Version  string
 	Size     int64

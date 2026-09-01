@@ -623,7 +623,10 @@ names a store keeps naming it and the two front ends agree in that session.
 
 The GUI needs CGO, OpenGL, and a display server. The CLI needs none of those and never
 will, because bootstrapping a bare machine depends on it staying a static binary with
-no runtime dependencies. `install.sh` installs both by default and skips the GUI with a
+no runtime dependencies. `angou release` stashes both in the store, but a store carries
+the CLI for every platform and the GUI only for the ones it has been built on — the GUI
+cannot be cross-compiled. `bootstrap.sh` installs the CLI and ignores the rest, so
+recovery never depends on the GUI being there. `install.sh` installs both by default and skips the GUI with a
 note if it cannot be built; `--no-gui` skips it deliberately.
 
 One caveat specific to the GUI: text typed into a field is held in a Go string, which

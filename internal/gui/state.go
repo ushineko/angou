@@ -506,6 +506,7 @@ func (u *ui) loadReleases() {
 		out := make([]ReleaseEntry, 0, len(arts))
 		for _, a := range arts {
 			out = append(out, ReleaseEntry{
+				Kind:     string(a.Kind),
 				Platform: a.GOOS + "/" + a.GOARCH,
 				Version:  a.Version,
 				Size:     a.Metadata.Size,

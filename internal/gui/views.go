@@ -645,8 +645,8 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 			} else {
 				icon.SetResource(theme.WarningIcon())
 			}
-			row.Objects[1].(*widget.Label).SetText(r.Platform)
-			row.Objects[2].(*widget.Label).SetText(r.Version)
+			row.Objects[1].(*widget.Label).SetText(r.Kind)
+			row.Objects[2].(*widget.Label).SetText(r.Platform + "  " + r.Version)
 			size := row.Objects[3].(*widget.Label)
 			size.Importance = widget.LowImportance
 			if r.Signed {
@@ -718,6 +718,14 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 		),
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("In the bootstrap namespace", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		func() fyne.CanvasObject {
+			l := widget.NewLabel("angou is the static CLI, which is what a bare machine is " +
+				"recovered with. angou-gui is the desktop front end, stashed only for platforms " +
+				"it has been built on: it needs CGO and cannot be cross-compiled.")
+			l.Wrapping = fyne.TextWrapWord
+			l.Importance = widget.LowImportance
+			return l
+		}(),
 	)
 	return container.NewBorder(top, nil, nil, nil, fixedHeight(list, 300))
 }
