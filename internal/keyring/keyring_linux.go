@@ -1,0 +1,128 @@
+//go:build linux
+
+package keyring
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/godbus/dbus/v5"
+)
+
+// ErrUnavailable is reserved for a backend that cannot be reached at all.
+// A failure of an individual operation against a reachable backend is a plain
+// error: treating it as unavailability would let a write that failed for some
+// other reason be mistaken for "this machine has no keyring", and fall through
+// to a path that silently changes nothing.
+//
+// KWallet talks to org.kde.kwalletd6 over the session bus. There is no
+// kwallet-query subprocess and no CGO, so the static binary keeps working on a
+// machine where the KDE command-line tools are absent (spec 001 R6.3).
+const (
+	kwalletService   = "org.kde.kwalletd6"
+	kwalletPath      = "/modules/kwalletd6"
+	kwalletInterface = "org.kde.KWallet"
+	// appID is what KWallet shows the user when it asks whether to grant access.
+	appID = "angou"
+)
+
+type kwallet struct {
+	conn   *dbus.Conn
+	object dbus.BusObject
+	handle int32
+}
+
+// Open connects to the platform keyring.
+func Open() (Keyring, error) {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return nil, fmt.Errorf("%w: session bus: %w", ErrUnavailable, err)
+	}
+	object := conn.Object(kwalletService, dbus.ObjectPath(kwalletPath))
+
+	var name string
+	if err := object.Call(kwalletInterface+".localWallet", 0).Store(&name); err != nil {
+		return nil, fmt.Errorf("%w: kwalletd6 is not answering: %w", ErrUnavailable, err)
+	}
+
+	k := &kwallet{conn: conn, object: object}
+	if err := k.openWallet(name); err != nil {
+		return nil, err
+	}
+	return k, nil
+}
+
+func (k *kwallet) openWallet(name string) error {
+	// wId 0 means "no parent window": KWallet decides how to prompt.
+	if err := k.object.Call(kwalletInterface+".open", 0, name, int64(0), appID).Store(&k.handle); err != nil {
+		return fmt.Errorf("%w: open wallet %q: %w", ErrUnavailable, name, err)
+	}
+	if k.handle < 0 {
+		// A negative handle is KWallet's refusal — typically the user declined
+		// the access prompt, or the wallet is locked and stayed locked.
+		return fmt.Errorf("%w: wallet %q was not unlocked", ErrUnavailable, name)
+	}
+	var created bool
+	if err := k.object.Call(kwalletInterface+".createFolder", 0, k.handle, Folder, appID).Store(&created); err != nil {
+		return fmt.Errorf("%w: create folder %q: %w", ErrUnavailable, Folder, err)
+	}
+	return nil
+}
+
+func (k *kwallet) Get(storeID string) ([]byte, error) {
+	entry := EntryName(storeID)
+
+	var present bool
+	if err := k.object.Call(kwalletInterface+".hasEntry", 0, k.handle, Folder, entry, appID).Store(&present); err != nil {
+		return nil, fmt.Errorf("query keyring entry: %w", err)
+	}
+	if !present {
+		return nil, ErrNoEntry
+	}
+
+	// readEntry, not readPassword: the unlock passphrase is 32 raw random bytes
+	// and D-Bus strings must be valid UTF-8, so the password API cannot carry it.
+	var value []byte
+	if err := k.object.Call(kwalletInterface+".readEntry", 0, k.handle, Folder, entry, appID).Store(&value); err != nil {
+		return nil, fmt.Errorf("read keyring entry: %w", err)
+	}
+	if len(value) == 0 {
+		return nil, ErrNoEntry
+	}
+	return value, nil
+}
+
+func (k *kwallet) Set(storeID string, secret []byte) error {
+	var result int32
+	err := k.object.Call(kwalletInterface+".writeEntry", 0,
+		k.handle, Folder, EntryName(storeID), secret, appID).Store(&result)
+	if err != nil {
+		return fmt.Errorf("write keyring entry: %w", err)
+	}
+	if result != 0 {
+		return fmt.Errorf("write keyring entry: kwalletd returned %d", result)
+	}
+	return nil
+}
+
+func (k *kwallet) Remove(storeID string) error {
+	var result int32
+	err := k.object.Call(kwalletInterface+".removeEntry", 0,
+		k.handle, Folder, EntryName(storeID), appID).Store(&result)
+	if err != nil {
+		return fmt.Errorf("remove keyring entry: %w", err)
+	}
+	return nil
+}
+
+func (k *kwallet) Close() error {
+	if k.conn == nil {
+		return nil
+	}
+	err := k.conn.Close()
+	k.conn = nil
+	if err != nil && !errors.Is(err, dbus.ErrClosed) {
+		return fmt.Errorf("close session bus: %w", err)
+	}
+	return nil
+}

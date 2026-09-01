@@ -2,15 +2,19 @@
 
 ## Status: INCOMPLETE
 
-Implementation is proceeding in passes. The first pass covers the container format,
-the metadata envelope, the recovery-passphrase half of the key model, store addressing,
-the index, and the `init`, `enc`, `dec`, `get`, `ls`, `mv`, `rm`, and `reindex`
-commands, together with the end-to-end test practice of R8. Twenty-five acceptance
-criteria are met and checked below.
+Implementation is proceeding in passes.
 
-The unchecked criteria are unstarted rather than failing. They belong to the keyring
-and unlock-passphrase model (R2.2 second half, R2.4, R2.5), the bootstrap and
-release-signing chain (R5), rotation (R4), the session cache (R6.5), and the two
+Pass 1 covered the container format, the metadata envelope, the recovery-passphrase
+half of the key model, store addressing, the index, and the `init`, `enc`, `dec`,
+`get`, `ls`, `mv`, `rm`, and `reindex` commands, together with the end-to-end test
+practice of R8.
+
+Pass 2 covered the keyring and unlock-passphrase model (R2.2 through R2.6) and added
+`bootstrap` and `doctor`. The keyring backend is KWallet over D-Bus, split by build
+constraint so a macOS Keychain backend is a new file rather than a refactor.
+
+The unchecked criteria are unstarted rather than failing. They belong to the bootstrap
+and release-signing chain (R5), rotation (R4), the session cache (R6.5), and the two
 integration criteria that depend on them — `gpg` reading a blob body, which needs a key
 export path, and `file(1)`/`xdg-mime` detection, which needs the packaging installed.
 
@@ -558,14 +562,14 @@ the Phase 3 validation gate.
       at least 77 bits of entropy.
 - [x] The plaintext header of a blob contains no key fingerprint, and decryption
       succeeds without one (R1.3).
-- [ ] Bootstrap generates an unlock passphrase from `crypto/rand` that appears in no
+- [x] Bootstrap generates an unlock passphrase from `crypto/rand` that appears in no
       log, no terminal output, and no file other than the wallet entry.
-- [ ] Two bootstraps of the same key bundle produce different unlock passphrases.
-- [ ] With the wallet entry deleted and the keyring intact, the CLI reports a
+- [x] Two bootstraps of the same key bundle produce different unlock passphrases.
+- [x] With the wallet entry deleted and the keyring intact, the CLI reports a
       re-bootstrap instruction and exits non-zero without prompting for a passphrase.
-- [ ] With KWallet unreachable, bootstrap completes and leaves the key under the
+- [x] With KWallet unreachable, bootstrap completes and leaves the key under the
       recovery passphrase (R2.5).
-- [ ] **Integration:** the wallet entry is written and read back through a live
+- [x] **Integration:** the wallet entry is written and read back through a live
       `org.kde.kwalletd6` D-Bus service, not a mocked bus.
 
 ### Store

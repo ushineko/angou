@@ -149,9 +149,10 @@ func Init(root string, recovery []byte) (*Store, error) {
 	return s, nil
 }
 
-// Open unlocks a store with the recovery passphrase (R2.5: this is the path
-// taken where no keyring backend is in use).
-func Open(root string, recovery []byte) (*Store, error) {
+// ExportIdentity opens the store's key bundle with the recovery passphrase and
+// returns the serialized identity. Bootstrap needs the bytes, not just a usable
+// identity, because it re-wraps them under the unlock passphrase.
+func ExportIdentity(root string, recovery []byte) ([]byte, error) {
 	bundleBytes, err := os.ReadFile(filepath.Join(root, BootstrapDir, KeyBundleName))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -163,10 +164,24 @@ func Open(root string, recovery []byte) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	exported, err := bundle.Open(recovery)
+	return bundle.Open(recovery)
+}
+
+// Open unlocks a store with the recovery passphrase. This is the path taken
+// before bootstrap, and the only path on a machine with no keyring backend
+// (R2.5).
+func Open(root string, recovery []byte) (*Store, error) {
+	exported, err := ExportIdentity(root, recovery)
 	if err != nil {
 		return nil, err
 	}
+	return OpenWithExportedIdentity(root, exported)
+}
+
+// OpenWithExportedIdentity unlocks a store from an identity already recovered by
+// other means — in practice the machine-local copy, unwrapped with the unlock
+// passphrase from the keyring.
+func OpenWithExportedIdentity(root string, exported []byte) (*Store, error) {
 	identity, err := pgpcrypto.ParsePrivate(exported)
 	if err != nil {
 		return nil, err

@@ -38,7 +38,11 @@ type memoryReport struct {
 // error to handle: argon2.IDKey allocates its block array in one go, and a
 // failed allocation in Go is a runtime abort, not a returnable error. Without
 // this the process is simply killed — exit 137, no output, nothing to diagnose.
-func (p Params) checkMemory() error {
+func (p Params) checkMemory() error { return p.CheckMemory() }
+
+// CheckMemory is the exported form, so `angou doctor` can report the same
+// verdict a derivation would reach without performing one.
+func (p Params) CheckMemory() error {
 	return p.checkMemoryAgainst(availableMemory())
 }
 

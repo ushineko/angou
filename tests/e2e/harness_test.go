@@ -36,6 +36,10 @@ type env struct {
 	store    string
 	work     string
 	recovery string
+	// withKeyring lets the child reach the session bus, and so the real
+	// kwalletd6. Off by default: a test that does not exercise the keyring must
+	// not be able to touch the developer's wallet even by accident.
+	withKeyring bool
 }
 
 // newEnv builds the environment for one test.
@@ -193,10 +197,61 @@ func (e *env) childEnv() []string {
 		}
 	}
 	out := []string{"PATH=" + os.Getenv("PATH")}
+	// The session bus address is pinned in both directions, never left unset.
+	// Unsetting it does not mean "no bus": the D-Bus client library falls back
+	// to autolaunch and finds the developer's real session, and with it their
+	// real wallet. A test that means to have no keyring must be given an address
+	// that cannot resolve.
+	if e.withKeyring {
+		addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+		if addr == "" {
+			e.t.Fatal("withKeyring was set but DBUS_SESSION_BUS_ADDRESS is not available")
+		}
+		out = append(out, "DBUS_SESSION_BUS_ADDRESS="+addr)
+	} else {
+		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+
+			filepath.Join(base, "no-such-bus"))
+	}
 	for k, v := range xdg {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// runNoPassphrase invokes the binary with no passphrase source at all. A command
+// that still needs one fails rather than prompting, because the child has no
+// terminal — which is exactly the assertion the keyring tests want.
+func (e *env) runNoPassphrase(args ...string) result {
+	e.t.Helper()
+
+	cmd := exec.Command(e.bin, args...)
+	cmd.Dir = e.work
+	cmd.Env = e.childEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if ok := asExitError(err, &exitErr); !ok {
+			e.t.Fatalf("running %v: %v\nstderr:\n%s", args, err, stderr.String())
+		}
+		code = exitErr.ExitCode()
+	}
+	return result{stdout: stdout.String(), stderr: stderr.String(), code: code}
+}
+
+// mustRunNoPassphrase is runNoPassphrase with a non-zero exit treated as fatal.
+func (e *env) mustRunNoPassphrase(args ...string) result {
+	e.t.Helper()
+	r := e.runNoPassphrase(args...)
+	if r.code != 0 {
+		e.t.Fatalf("angou %v exited %d without a passphrase source\nstdout:\n%s\nstderr:\n%s",
+			args, r.code, r.stdout, r.stderr)
+	}
+	return r
 }
 
 // mustRun runs a command and fails the test if it exits non-zero.

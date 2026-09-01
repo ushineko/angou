@@ -13,7 +13,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/store"
 	"github.com/ushineko/angou/lib/container"
 )
@@ -51,6 +50,8 @@ func Root() *cobra.Command {
 
 	root.AddCommand(
 		newInitCmd(),
+		newBootstrapCmd(),
+		newDoctorCmd(),
 		newEncCmd(),
 		newDecCmd(),
 		newGetCmd(),
@@ -69,31 +70,9 @@ func storeDir() (string, error) {
 	return global.storeDir, nil
 }
 
-// openStore unlocks the store with the recovery passphrase. Pass 1 has no
-// keyring backend, so this is the R2.5 path: the identity stays under the
-// recovery passphrase and every command pays for one derivation.
-func openStore() (*store.Store, error) {
-	dir, err := storeDir()
-	if err != nil {
-		return nil, err
-	}
-	secret, err := prompt.Passphrase(global.passphraseFD, "Recovery passphrase: ")
-	if err != nil {
-		return nil, err
-	}
-	defer prompt.Zero(secret)
-
-	s, err := store.Open(dir, secret)
-	if err != nil {
-		return nil, err
-	}
-	if !s.IndexTrusted {
-		// R3.7: the index is a cache, never authoritative. Degrade browsing and
-		// say so, rather than failing an operation that does not need it.
-		fmt.Fprintln(os.Stderr, "angou: the index is missing or did not verify; run `angou reindex` to rebuild it.")
-	}
-	return s, nil
-}
+// openStore unlocks the store by whichever route the machine supports. See
+// unlock() for the two routes and why a failing local key never falls back.
+func openStore() (*store.Store, error) { return unlock() }
 
 func encodingFor(binary bool) container.Encoding {
 	if binary {
