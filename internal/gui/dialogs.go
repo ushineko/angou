@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"os"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -326,7 +327,7 @@ func (u *ui) cloneDialog() {
 
 	u.pathDialog("Clone the store", "Clone", container.NewVBox(
 		widget.NewForm(widget.NewFormItem("Destination", to)), noBinaries), func() {
-		from := storeDir()
+		from := u.storeDir()
 		go func() {
 			n, err := core.CopyStore(from, to.Text, noBinaries.Checked)
 			if err != nil {
@@ -365,4 +366,40 @@ func (u *ui) showRecoveryPassphrase(phrase string, bits float64) {
 		container.NewVBox(value, widget.NewSeparator(), warn), u.win)
 	d.Resize(fyne.NewSize(520, 300))
 	d.Show()
+}
+
+// chooseStore points the window at a store directory and remembers it.
+//
+// This is how the application is usable from a desktop entry at all: launched
+// from a taskbar there is no environment, so without a remembered choice the
+// window would open on first-run setup every time.
+func (u *ui) chooseStore() {
+	dir := widget.NewEntry()
+	dir.SetText(u.storeDir())
+	dir.SetPlaceHolder("the store directory")
+
+	note := widget.NewLabel(
+		"Remembered between runs, so the desktop entry opens this store. Only the path is " +
+			"saved — no fingerprint, no passphrase, and nothing out of the store itself.")
+	note.Wrapping = fyne.TextWrapWord
+	note.Importance = widget.LowImportance
+
+	env := widget.NewLabel("")
+	env.Wrapping = fyne.TextWrapWord
+	if v := os.Getenv(StoreEnv); v != "" {
+		env.SetText("$" + StoreEnv + " is set to " + v + " and takes precedence over this " +
+			"while it is. Unset it to use the remembered choice.")
+		env.Importance = widget.WarningImportance
+	}
+
+	u.pathDialog("Choose a store", "Use this store",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", dir)), note, env),
+		func() {
+			if !core.StoreExists(dir.Text) {
+				u.flash(dir.Text+" does not hold a store. Use first-run setup to create one.", StatusBad)
+				return
+			}
+			u.setStoreDir(dir.Text)
+			u.flash("Now using the store at "+dir.Text, StatusGood)
+		})
 }

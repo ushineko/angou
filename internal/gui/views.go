@@ -434,7 +434,7 @@ func (u *ui) buildDoctor() fyne.CanvasObject {
 			u.flash("Enter the fingerprint of the superseded key first.", StatusWarn)
 			return
 		}
-		dir := storeDir()
+		dir := u.storeDir()
 		go func() {
 			opened, err := core.AssertOldKeyDead(dir, fingerprint, guiSecrets{u: u})
 			if err != nil {
@@ -547,7 +547,7 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 						"Afterwards this machine opens the store only with the recovery passphrase. "+
 						"If you do not have it written down somewhere, this machine will not open the store again.",
 					"Forget", func() {
-						dir := storeDir()
+						dir := u.storeDir()
 						go func() {
 							r, err := core.ForgetMachine(dir)
 							if err != nil {
@@ -761,7 +761,7 @@ func (u *ui) buildAgentBlock() fyne.CanvasObject {
 	}
 
 	stop := widget.NewButton("Stop the session", func() {
-		dir := storeDir()
+		dir := u.storeDir()
 		go func() {
 			stopped, err := core.StopAgent(dir)
 			if err != nil {
@@ -945,9 +945,9 @@ func (u *ui) buildAppearance() fyne.CanvasObject {
 	)
 
 	note := widget.NewLabel(
-		"These are saved and restored the next time the window opens. They are the only " +
-			"thing this application persists: the preferences file holds no store path, no " +
-			"fingerprint, and no secret.")
+		"These are saved and restored the next time the window opens, alongside the store " +
+			"directory. That is everything this application persists: the preferences file " +
+			"holds no fingerprint, no passphrase, and nothing out of the store itself.")
 	note.Wrapping = fyne.TextWrapWord
 	note.Importance = widget.LowImportance
 

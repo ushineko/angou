@@ -614,8 +614,13 @@ of a table you read before retyping a path into a second command.
 It is built with Fyne, which draws its own widgets and so looks native on no desktop.
 The mitigation is a set of transcribed color schemes — Breeze Dark, Breeze Light,
 Oxygen Dark, Adwaita Dark, and Adwaita Light — with a font and text-size picker beside
-them, under **Appearance**. Those three settings are the only thing the GUI saves
-between runs; the file holds no store path, no fingerprint, and no secret.
+them, under **Appearance**. Those settings and the store directory are all the GUI
+saves between runs; the file holds no fingerprint, no passphrase, and nothing out of
+the store itself.
+
+The GUI finds its store from `$ANGOU_STORE` when that is set, and otherwise from the
+directory you last chose with **Store…**. The environment wins, so a shell that already
+names a store keeps naming it and the two front ends agree in that session.
 
 The GUI needs CGO, OpenGL, and a display server. The CLI needs none of those and never
 will, because bootstrapping a bare machine depends on it staying a static binary with

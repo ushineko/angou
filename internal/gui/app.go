@@ -48,7 +48,8 @@ type ui struct {
 
 	content *container.Scroll
 	nav     *widget.List
-	current int // the selected section, so an operation can rebuild it
+	frame   *fyne.Container // holds the status bar, so it can be redrawn
+	current int             // the selected section, so an operation can rebuild it
 
 	// Loaded from the store on a goroutine, read and written on the UI thread.
 	//
@@ -135,15 +136,16 @@ func Run(o Options) {
 	applyCursorTheme()
 
 	// The ID gives the app a preferences store, which Fyne writes under the
-	// user's config directory. That file holds appearance settings and nothing
-	// else (R5A.6): no store path, no fingerprint, no secret. The prototype
-	// still opens no store and reads no key material.
+	// user's config directory. That file holds the appearance settings and the
+	// chosen store directory (R5A.6), and nothing else: no fingerprint, no
+	// passphrase, and nothing out of the store itself.
 	a := app.NewWithID("io.ushineko.angou")
 	home, _ := os.UserHomeDir()
-	u := &ui{app: a, version: o.Version, session: Session{StoreDir: storeDir()}, scanRoot: home}
+	u := &ui{app: a, version: o.Version, scanRoot: home}
 	u.win = a.NewWindow("angou " + o.Version)
 	u.win.SetIcon(appIcon())
 	a.SetIcon(appIcon())
+	u.session = Session{StoreDir: u.storeDir()}
 	u.loadAppearance()
 	if o.Scheme != "" {
 		// Forced for this run only, so a capture does not overwrite whatever
@@ -179,7 +181,9 @@ func Run(o Options) {
 	split := container.NewHSplit(u.nav, container.NewBorder(u.flashes, nil, nil, nil, u.content))
 	split.SetOffset(0.16)
 
-	u.win.SetContent(container.NewBorder(u.header(), u.statusBar(), nil, nil, split))
+	// The status bar is kept addressable so changing store can redraw it.
+	u.frame = container.NewVBox(u.statusBar())
+	u.win.SetContent(container.NewBorder(u.header(), u.frame, nil, nil, split))
 	u.win.Resize(fyne.NewSize(1180, 760))
 	u.nav.Select(sectionIndex(secs, o.Section))
 	u.win.SetMaster()
@@ -215,6 +219,16 @@ func SchemeNames() []string { return paletteNames() }
 
 // refresh rebuilds the current section, so a view showing store contents picks
 // up what an operation just changed. Called on the UI thread.
+// rebuild redraws the whole window, including the status bar, which names the
+// store. refresh alone only replaces the content pane.
+func (u *ui) rebuild() {
+	if u.frame != nil {
+		u.frame.Objects[0] = u.statusBar()
+		u.frame.Refresh()
+	}
+	u.refresh()
+}
+
 func (u *ui) refresh() {
 	secs := sections()
 	if u.current >= 0 && u.current < len(secs) {
@@ -234,9 +248,10 @@ func (u *ui) show(o fyne.CanvasObject) {
 func (u *ui) header() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("angou", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
+	choose := widget.NewButtonWithIcon("Store…", theme.FolderOpenIcon(), func() { u.chooseStore() })
 	setup := widget.NewButton("First-run setup…", func() { u.firstRun() })
 
-	bar := container.NewHBox(title, layout.NewSpacer(), setup)
+	bar := container.NewHBox(title, layout.NewSpacer(), choose, setup)
 	return container.NewVBox(container.NewPadded(bar), widget.NewSeparator())
 }
 
@@ -244,7 +259,11 @@ func (u *ui) header() fyne.CanvasObject {
 // session's remaining time. Nothing else goes here: R5.1 keeps secrets out of
 // the status bar, the window title, and every tooltip.
 func (u *ui) statusBar() fyne.CanvasObject {
-	store := widget.NewLabel(u.session.StoreDir)
+	dir := u.session.StoreDir
+	if dir == "" {
+		dir = "none chosen"
+	}
+	store := widget.NewLabel(dir)
 	route := statusText(u.session.Route.String(), routeStatus(u.session.Route))
 
 	agentTxt := "no session"

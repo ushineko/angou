@@ -30,9 +30,43 @@ import (
 // StoreEnv names the environment variable holding the default store directory.
 const StoreEnv = "ANGOU_STORE"
 
-// storeDir is where the store is, or empty when none is configured. A path, not
-// a secret.
-func storeDir() string { return os.Getenv(StoreEnv) }
+// prefStore is where the chosen store directory is remembered.
+const prefStore = "store.dir"
+
+// storeDir is the store this window is working with, or empty when none has
+// been chosen.
+//
+// $ANGOU_STORE wins when it is set, so a shell that already names a store keeps
+// naming it and the CLI and the GUI agree in that session. Otherwise the
+// remembered choice is used, because a GUI is normally launched from a desktop
+// entry with no environment at all — requiring the variable would mean the
+// taskbar icon always led to first-run setup.
+//
+// A store path is not a secret. It is already in $ANGOU_STORE, in the shell
+// history of anyone using the CLI, and in doctor's output. What is never
+// written here is a fingerprint, a passphrase, or anything out of the store.
+func (u *ui) storeDir() string {
+	if v := os.Getenv(StoreEnv); v != "" {
+		return v
+	}
+	return u.app.Preferences().String(prefStore)
+}
+
+// setStoreDir remembers a store and reloads everything for it.
+func (u *ui) setStoreDir(dir string) {
+	u.app.Preferences().SetString(prefStore, dir)
+	u.session = Session{StoreDir: dir}
+	// Everything on screen describes the previous store.
+	u.entries, u.entriesOK = nil, false
+	u.doctor, u.doctorOK = nil, false
+	u.releases, u.agentOK = nil, false
+	u.candidates = nil
+	u.rebuild()
+	if os.Getenv(StoreEnv) != "" && os.Getenv(StoreEnv) != dir {
+		u.flash("$"+StoreEnv+" is set and takes precedence, so this window is still using "+
+			os.Getenv(StoreEnv)+".", StatusWarn)
+	}
+}
 
 // guiSecrets asks for a passphrase in a modal dialog.
 //
@@ -83,7 +117,7 @@ func (u *ui) events() core.Events {
 // something a window should do quietly. Where that cost is real, the answer is
 // to start an agent, not to make this window a worse one.
 func (u *ui) withSession(what string, fn func(*core.Session) error) {
-	dir := storeDir()
+	dir := u.storeDir()
 	if dir == "" {
 		u.flash("No store is configured. Set $"+StoreEnv+" or run the first-run setup.", StatusBad)
 		return
@@ -154,7 +188,7 @@ func (u *ui) loadEntries() {
 // passphrase prompt would be a worse diagnostic. The report is smaller without
 // the store-level facts, not wrong.
 func (u *ui) loadDoctor() {
-	dir := storeDir()
+	dir := u.storeDir()
 	if dir == "" {
 		return
 	}
@@ -181,7 +215,7 @@ func (u *ui) loadDoctor() {
 
 // loadAgent fills the session-cache state.
 func (u *ui) loadAgent() {
-	dir := storeDir()
+	dir := u.storeDir()
 	if dir == "" {
 		return
 	}
@@ -347,7 +381,8 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 		}
 
 		if !bootstrap {
-			u.ok("Created the store at " + dir + ". Set $" + StoreEnv + " to use it.")
+			fyne.Do(func() { u.setStoreDir(dir) })
+			u.ok("Created the store at " + dir + ".")
 			return
 		}
 		exported, err := s.ExportLocalIdentity()
@@ -360,6 +395,7 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 			u.report("Set this machine up", err)
 			return
 		}
-		u.ok("Created the store at " + dir + " and set this machine up. Set $" + StoreEnv + " to use it.")
+		fyne.Do(func() { u.setStoreDir(dir) })
+		u.ok("Created the store at " + dir + " and set this machine up.")
 	}()
 }

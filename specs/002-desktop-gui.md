@@ -239,11 +239,22 @@ the X11 and XWayland case, where the match is on `WM_CLASS`. Naming the file
 still opens and the icon is simply generic — so the constraint is recorded here and in a
 comment in the file itself.
 
-**R5A.6** The chosen scheme, font, and text size are saved and restored across runs.
-This is the only thing the application persists, and the preferences file holds no
-store path, no fingerprint, and no secret. `uninstall.sh` names the file and the
-command to remove it rather than deleting it, since the application wrote it and the
-installer did not.
+**R5A.6** The chosen scheme, font, text size, and store directory are saved and restored
+across runs. The preferences file holds no fingerprint, no passphrase, and nothing out
+of the store itself. `uninstall.sh` names the file and the command to remove it rather
+than deleting it, since the application wrote it and the installer did not.
+
+The store path was excluded from this in the first draft, and that was wrong. A GUI is
+normally launched from a desktop entry, which carries no environment, so a window that
+can only learn its store from `$ANGOU_STORE` opens on first-run setup every time it is
+started the way desktop applications are actually started. The path is also not a
+secret worth withholding here: it is already in `$ANGOU_STORE`, in the shell history of
+anyone using the CLI, and in `doctor`'s output.
+
+**R5A.6.1** The store is resolved as `$ANGOU_STORE` when set, then the remembered
+choice. The environment wins so that a shell already naming a store keeps naming it and
+the two front ends agree within that session; the window says so when the two disagree
+rather than silently ignoring the choice just made.
 
 **R5A.7** The default text size is smaller than Fyne's own. This is a dense window of
 tables and reports; the toolkit's 14pt default is sized for a touch target and makes it
