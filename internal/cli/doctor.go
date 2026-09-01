@@ -11,7 +11,6 @@ import (
 
 	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/prompt"
-	"github.com/ushineko/angou/internal/store"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -47,28 +46,11 @@ func newDoctorCmd() *cobra.Command {
 	return cmd
 }
 
-// assertOldKeyIsDead is the verification step after an identity rotation
-// (R6.4.1). It exits non-zero if the named key still opens anything.
+// assertOldKeyIsDead reports the result of core's check and exits non-zero if
+// the named key still opens anything.
 func assertOldKeyIsDead(dir, fingerprint string) error {
-	fingerprint = strings.ToUpper(strings.ReplaceAll(fingerprint, " ", ""))
-
-	// The superseded identity is recovered from a retained bundle. If no bundle
-	// carries it, the check cannot be performed and says so rather than
-	// reporting a clean result it did not establish.
-	secret, err := prompt.Passphrase(global.passphraseFD, "Recovery passphrase for the superseded key bundle: ")
-	if err != nil {
-		return err
-	}
-	defer prompt.Zero(secret)
-
-	exported, err := store.ExportIdentityByFingerprint(dir, fingerprint, secret)
-	if err != nil {
-		return fmt.Errorf("%w\nWithout the superseded key this check cannot be performed, and a clean "+
-			"result must not be assumed", err)
-	}
-	defer prompt.Zero(exported)
-
-	opened, err := store.OldKeyOpensAnything(dir, exported)
+	fingerprint = core.NormalizeFingerprint(fingerprint)
+	opened, err := core.AssertOldKeyDead(dir, fingerprint, cliSecrets{})
 	if err != nil {
 		return err
 	}

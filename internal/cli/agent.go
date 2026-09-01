@@ -76,7 +76,7 @@ func newAgentStartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			identity, err := s.Store().ExportLocalIdentity()
+			identity, err := s.ExportLocalIdentity()
 			if err != nil {
 				return err
 			}

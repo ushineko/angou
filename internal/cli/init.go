@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/passphrase"
 	"github.com/ushineko/angou/internal/prompt"
-	"github.com/ushineko/angou/internal/store"
 )
 
 func newInitCmd() *cobra.Command {
@@ -40,7 +40,7 @@ func newInitCmd() *cobra.Command {
 			// passphrase" and only then reporting that the store already exists
 			// reads as though the store is about to be replaced, which is
 			// alarming and wrong.
-			if store.Exists(dir) {
+			if core.StoreExists(dir) {
 				return fmt.Errorf("%s already holds a store, so there is nothing to initialize.\n"+
 					"To set this machine up to open it:   angou bootstrap --store %s\n"+
 					"To see what this machine can do:     angou doctor --store %s", dir, dir, dir)
@@ -75,7 +75,7 @@ func newInitCmd() *cobra.Command {
 			// it first tells the user to write down a phrase that opens nothing
 			// if this fails — and it does fail, on a full disk, an unwritable
 			// directory, or a machine without the memory for the derivation.
-			s, err := store.Init(dir, secret)
+			s, err := core.Init(dir, secret, events())
 			if err != nil {
 				return err
 			}

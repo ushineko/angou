@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/passphrase"
@@ -69,7 +70,7 @@ func rekeyLocal() error {
 	if err != nil {
 		return err
 	}
-	exported, err := s.Store().ExportLocalIdentity()
+	exported, err := s.ExportLocalIdentity()
 	if err != nil {
 		return err
 	}
@@ -105,7 +106,7 @@ func rekeyLocal() error {
 	if err := localkey.CommitStaged(staged); err != nil {
 		return err
 	}
-	if err := selfTest(dir); err != nil {
+	if err := core.SelfTest(dir, events()); err != nil {
 		return fmt.Errorf("rekey --local wrote local state but its self-test failed: %w", err)
 	}
 	fmt.Printf("Rotated the machine password for %s.\n", dir)
@@ -142,7 +143,7 @@ func rekeyIdentity() error {
 		return err
 	}
 
-	result, err := s.Store().RekeyIdentity(recovery)
+	result, err := s.RekeyIdentity(recovery)
 	if err != nil {
 		return err
 	}
@@ -190,7 +191,7 @@ func newPasswdCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.Store().RewrapRecovery(fresh); err != nil {
+			if err := s.RewrapRecovery(fresh); err != nil {
 				return err
 			}
 			fmt.Printf("Recovery passphrase changed (about %.0f bits).\n", bits)
@@ -242,7 +243,7 @@ func newPruneCmd() *cobra.Command {
 					return err
 				}
 				defer prompt.Zero(recovery)
-				if err := s.Store().PruneSupersededBundles(recovery); err != nil {
+				if err := s.PruneSupersededBundles(recovery); err != nil {
 					return err
 				}
 				fmt.Println("Kept the key bundle that opens this store and removed the rest.")
@@ -258,7 +259,7 @@ func newPruneCmd() *cobra.Command {
 				}
 			}
 			if orphans {
-				removed, misnamed, err := s.Store().PruneOrphans()
+				removed, misnamed, err := s.PruneOrphans()
 				if err != nil {
 					return err
 				}

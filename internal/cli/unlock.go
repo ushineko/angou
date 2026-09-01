@@ -3,7 +3,6 @@ package cli
 import (
 	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/prompt"
-	"github.com/ushineko/angou/internal/store"
 )
 
 // This file is the CLI's half of unlocking: how a passphrase is asked for, and
@@ -26,12 +25,6 @@ func unlock() (*core.Session, error) {
 		return nil, err
 	}
 	return core.Open(dir, cliSecrets{}, events())
-}
-
-// unlockLocal takes the keyring route only. bootstrap --force uses it to reach
-// a superseded local key it is about to replace.
-func unlockLocal(dir string) (*store.Store, error) {
-	return core.OpenLocal(dir, events())
 }
 
 // cliDecider answers core's mid-operation questions on the terminal.

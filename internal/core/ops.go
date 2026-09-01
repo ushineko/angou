@@ -23,15 +23,6 @@ type Session struct {
 	ev Events
 }
 
-// Store exposes the underlying store.
-//
-// MIGRATION SCAFFOLDING (spec 002 pass 2). The commands that have not yet moved
-// onto this type still drive the store directly, and this is how they reach it
-// during the move. It must be gone before pass 2 is called finished: while it
-// exists, the rule that neither front end reaches past internal/core is a
-// convention rather than something the compiler holds.
-func (s *Session) Store() *store.Store { return s.st }
-
 // Fingerprint is the store's identity key.
 func (s *Session) Fingerprint() string { return s.st.Fingerprint() }
 
@@ -376,3 +367,59 @@ func MIMEFor(name string) string {
 	}
 	return "application/octet-stream"
 }
+
+// --- rotation, pruning, and store metadata ---------------------------------
+
+// ExportLocalIdentity hands out the unlocked identity for the agent to hold.
+// The caller zeroes it.
+func (s *Session) ExportLocalIdentity() ([]byte, error) { return s.st.ExportLocalIdentity() }
+
+// Meta is the store's own record: its format, the version floor, and the digest
+// of the bootstrap script.
+func (s *Session) Meta() store.Meta { return s.st.Meta() }
+
+// RekeyIdentity rotates the store's keypair and naming key, re-encrypting every
+// blob and re-addressing every logical path.
+//
+// It works on a copy and commits at the end, so an interruption leaves the
+// original intact. The superseded bundle is retained deliberately: replacing
+// both the bundle and the store metadata cannot be done atomically on a plain
+// directory, so the window is made recoverable rather than fatal. That is also
+// why the rotation is not finished until the superseded bundle is pruned.
+func (s *Session) RekeyIdentity(recovery []byte) (*store.RekeyResult, error) {
+	s.ev.logf("rotating the store identity")
+	return s.st.RekeyIdentity(recovery)
+}
+
+// RewrapRecovery re-wraps the key bundle under a new recovery passphrase.
+// Existing blobs are not rewritten: the passphrase protects the bundle, not the
+// blobs.
+func (s *Session) RewrapRecovery(newRecovery []byte) error {
+	s.ev.logf("re-wrapping the key bundle under a new recovery passphrase")
+	return s.st.RewrapRecovery(newRecovery)
+}
+
+// PruneSupersededBundles removes retained bundles other than the current one.
+//
+// This is what finally closes a rotation. Until it runs, the key rotated away
+// from still opens the blobs it wrote.
+func (s *Session) PruneSupersededBundles(recovery []byte) error {
+	return s.st.PruneSupersededBundles(recovery)
+}
+
+// PruneOrphans removes blobs that do not decrypt with this store's key, and
+// files whose names are not blob names at all.
+func (s *Session) PruneOrphans() (removed, misnamed []string, err error) {
+	return s.st.PruneOrphans()
+}
+
+// RaiseVersionFloor records that a given version has been installed from this
+// store, so an older binary is refused afterwards (spec 001 R5.4.2).
+func (s *Session) RaiseVersionFloor(version string, newer func(a, b string) int) (bool, error) {
+	return s.st.RaiseVersionFloor(version, newer)
+}
+
+// SetBootstrapSHA256 records the digest of the bootstrap script kept beside the
+// store, so later drift can be detected. This is drift detection after the
+// fact, never a guarantee about the first run.
+func (s *Session) SetBootstrapSHA256(d string) error { return s.st.SetBootstrapSHA256(d) }

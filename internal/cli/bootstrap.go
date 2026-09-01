@@ -1,20 +1,15 @@
 package cli
 
 import (
-	"bytes"
-	"crypto/rand"
-	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ushineko/angou/internal/buildinfo"
-	"github.com/ushineko/angou/internal/container"
-	"github.com/ushineko/angou/internal/keyring"
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
-	"github.com/ushineko/angou/internal/store"
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -57,7 +52,7 @@ func newBootstrapCmd() *cobra.Command {
 			}
 			defer prompt.Zero(secret)
 
-			exported, err := store.ExportIdentity(dir, secret)
+			exported, err := core.ExportIdentity(dir, secret)
 			if err != nil {
 				return err
 			}
@@ -66,13 +61,13 @@ func newBootstrapCmd() *cobra.Command {
 			// Confirm the recovered identity actually opens this store before
 			// committing any local state, so a failure leaves the machine as it
 			// was rather than half-configured.
-			s, err := store.OpenWithExportedIdentity(dir, exported)
+			s, err := core.OpenWithExportedIdentity(dir, exported, events())
 			if err != nil {
 				return err
 			}
 			// The real version floor is applied here, where the store can
 			// actually be read (R5.4.2).
-			if err := checkVersionFloor(s, buildinfo.Version); err != nil {
+			if err := core.CheckVersionFloor(s.Meta().VersionFloor, s.Root(), buildinfo.Version); err != nil {
 				return err
 			}
 			fingerprint := s.Fingerprint()
@@ -107,113 +102,31 @@ func newBootstrapCmd() *cobra.Command {
 // It reports whether it did anything. Where no keyring backend is reachable it
 // writes nothing and says so, leaving the store on the recovery passphrase
 // (R2.5) — a machine that silently kept prompting would look broken.
-func setUpMachine(dir, fingerprint string, exported []byte, s *store.Store) (bool, error) {
-	// Probe before opening. Opening a wallet can raise a dialog and wait for a
-	// person to answer it, which is correct on a desktop and a hang anywhere
-	// else; this check tells the two apart without prompting, so a machine with
-	// no keyring skips the attempt entirely.
-	if !keyring.Available() {
-		return noKeyring(s, errors.New("no keyring service is running"))
-	}
-	ring, err := keyring.Open()
-	if err != nil {
-		// A misspelt backend is the user's mistake to see, not something to
-		// absorb into the no-keyring path.
-		if errors.Is(err, keyring.ErrUnavailable) && !errors.Is(err, keyring.ErrBadBackend) {
-			return noKeyring(s, err)
-		}
-		return false, err
-	}
-	defer func() { _ = ring.Close() }()
-
-	unlockSecret, err := localkey.GenerateUnlockPassphrase()
+// setUpMachine stores the local key and reports how it went. The operation is
+// core's; what stays here is saying so on stderr.
+func setUpMachine(dir, fingerprint string, exported []byte, s *core.Session) (bool, error) {
+	_, _ = dir, fingerprint
+	r, err := s.SetUpMachine(exported)
 	if err != nil {
 		return false, err
 	}
-	defer prompt.Zero(unlockSecret)
-
-	// Keyring first: a local key whose passphrase never reached the keyring is
-	// unopenable, whereas a keyring entry with no local key is merely unused and
-	// is overwritten by the next bootstrap.
-	if err := ring.Set(fingerprint, unlockSecret); err != nil {
-		return false, err
-	}
-	if err := localkey.Write(dir, fingerprint, exported, unlockSecret); err != nil {
-		return false, err
-	}
-	if err := selfTest(dir); err != nil {
-		return false, fmt.Errorf("local key written but its self-test failed: %w", err)
+	if !r.UsedKeyring {
+		fmt.Fprintf(os.Stderr, "No keyring is available on this machine, so the identity was not\n"+
+			"re-protected here. The store remains reachable with the recovery passphrase.\n"+
+			"Underlying cause: %v\n", r.Cause)
 	}
 	fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
-	return true, nil
-}
-
-// noKeyring reports that this machine keeps using the recovery passphrase, and
-// checks the store is usable that way before saying so (R2.5).
-func noKeyring(s *store.Store, cause error) (bool, error) {
-	fmt.Fprintf(os.Stderr, "No keyring is available on this machine, so the identity was not\n"+
-		"re-protected here. The store remains reachable with the recovery passphrase.\n"+
-		"Underlying cause: %v\n", cause)
-	if err := roundTripSelfTest(s); err != nil {
-		return false, fmt.Errorf("the store did not pass its round-trip self-test: %w", err)
-	}
-	fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
-	return false, nil
-}
-
-// roundTripSelfTest writes a temporary blob, reads it back, and removes it,
-// confirming the store is actually usable rather than merely openable (R5.9).
-func roundTripSelfTest(s *store.Store) error {
-	probe := make([]byte, 32)
-	if _, err := rand.Read(probe); err != nil {
-		return fmt.Errorf("generate self-test payload: %w", err)
-	}
-	const path = ".angou-selftest"
-	if _, err := s.Put(path, probe, 0o600, 0, "application/octet-stream", container.EncodingArmor); err != nil {
-		return err
-	}
-	env, err := s.Get(path)
-	if err != nil {
-		_ = s.Remove(path)
-		return err
-	}
-	if !bytes.Equal(env.Content, probe) {
-		_ = s.Remove(path)
-		return errors.New("the self-test payload did not round-trip")
-	}
-	return s.Remove(path)
-}
-
-// selfTest confirms the machine can now open the store by the keyring route,
-// so a broken bootstrap is reported by bootstrap rather than by the next
-// command the user runs (R5.9).
-func selfTest(dir string) error {
-	s, err := unlockLocal(dir)
-	if err != nil {
-		return err
-	}
-	return roundTripSelfTest(s)
+	return r.UsedKeyring, nil
 }
 
 func forgetLocal(dir string) error {
-	if !localkey.Exists(dir) {
-		fmt.Printf("This machine holds no local key for %s.\n", dir)
-		return nil
-	}
-	fingerprint, err := localkey.Fingerprint(dir)
+	r, err := core.ForgetMachine(dir)
 	if err != nil {
 		return err
 	}
-	if ring, err := keyring.Open(); err == nil {
-		defer func() { _ = ring.Close() }()
-		if err := ring.Remove(fingerprint); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, keyring.ErrUnavailable) {
-		return err
-	}
-	if err := localkey.Remove(dir); err != nil {
-		return err
+	if !r.HadKey {
+		fmt.Printf("This machine holds no local key for %s.\n", dir)
+		return nil
 	}
 	fmt.Printf("Removed this machine's local key for %s.\n", dir)
 	fmt.Fprintln(os.Stderr, "Commands will ask for the recovery passphrase again until you re-run bootstrap.")

@@ -36,7 +36,7 @@ func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
 	// Checking it there alone would leave the rollback R5.4.2 exists to stop
 	// perfectly usable once the older binary was installed: it could still read
 	// and write every blob, which is the part that matters.
-	if err := CheckVersionFloor(s, buildinfo.Version); err != nil {
+	if err := CheckVersionFloor(s.Meta().VersionFloor, s.Root(), buildinfo.Version); err != nil {
 		return nil, err
 	}
 	finish(s, ev)
@@ -256,8 +256,7 @@ func warnIfBootstrapDrifted(s *store.Store, ev Events) {
 //
 // A validly signed old release is still an old release, and replaying one is how
 // write access to a store becomes execution (R5.4.2).
-func CheckVersionFloor(s *store.Store, version string) error {
-	floor := s.Meta().VersionFloor
+func CheckVersionFloor(floor, root, version string) error {
 	if floor == "" {
 		return nil
 	}
@@ -268,7 +267,7 @@ func CheckVersionFloor(s *store.Store, version string) error {
 		"Refusing to bootstrap with an older binary: a validly signed old release is still\n"+
 		"an old release, and replaying one is how write access to a store becomes execution.\n"+
 		"Install the current version and try again",
-		version, s.Root(), floor)
+		version, root, floor)
 }
 
 func digest(b []byte) string {

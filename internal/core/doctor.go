@@ -11,6 +11,7 @@ import (
 	"github.com/ushineko/angou/internal/keybundle"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
+	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
 )
@@ -88,7 +89,7 @@ func doctorBootstrapNamespace(r *Report, dir string, s *store.Store) {
 		return
 	}
 	if floor := s.Meta().VersionFloor; floor != "" {
-		if err := CheckVersionFloor(s, buildinfo.Version); err != nil {
+		if err := CheckVersionFloor(floor, s.Root(), buildinfo.Version); err != nil {
 			r.add(title, Finding{Label: "version floor",
 				Value: floor + " — THIS BINARY IS OLDER AND WILL BE REFUSED", Severity: SeverityBad})
 			r.add(title, Finding{Label: "this binary", Indent: 1, Value: buildinfo.Version})
@@ -196,4 +197,39 @@ func trimCause(err error) string {
 		return rest
 	}
 	return msg
+}
+
+// AssertOldKeyDead is the verification step after an identity rotation
+// (spec 001 R6.4.1): it reports which files, if any, a superseded key still
+// opens.
+//
+// An empty result means the rotation is complete. The distinction that matters
+// is between "nothing is readable by that key" and "we could not check": the
+// superseded identity is recovered from a retained bundle, and if no bundle
+// carries it the check cannot be performed at all. That returns an error rather
+// than an empty list, because a clean result must not be assumed from a check
+// that did not run.
+func AssertOldKeyDead(dir, fingerprint string, secrets Secrets) ([]string, error) {
+	fingerprint = strings.ToUpper(strings.ReplaceAll(fingerprint, " ", ""))
+
+	secret, err := secrets.Recovery("Recovery passphrase for the superseded key bundle: ")
+	if err != nil {
+		return nil, err
+	}
+	defer prompt.Zero(secret)
+
+	exported, err := store.ExportIdentityByFingerprint(dir, fingerprint, secret)
+	if err != nil {
+		return nil, fmt.Errorf("%w\nWithout the superseded key this check cannot be performed, and a clean "+
+			"result must not be assumed", err)
+	}
+	defer prompt.Zero(exported)
+
+	return store.OldKeyOpensAnything(dir, exported)
+}
+
+// NormalizeFingerprint upper-cases a fingerprint and strips the spaces people
+// paste in with it.
+func NormalizeFingerprint(f string) string {
+	return strings.ToUpper(strings.ReplaceAll(f, " ", ""))
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ushineko/angou/internal/buildinfo"
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/pgpcrypto"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
@@ -157,7 +158,7 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 		return fmt.Errorf("write %s: %w", release.KeyName, err)
 	}
 
-	raised, err := s.Store().RaiseVersionFloor(buildinfo.Version, release.CompareVersions)
+	raised, err := s.RaiseVersionFloor(buildinfo.Version, release.CompareVersions)
 	if err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func stashRelease(dist, signingKeyPath string, keep int) error {
 	if err := signBootstrapScript(s.Root(), signer); err != nil {
 		return err
 	}
-	if err := recordBootstrapScript(s.Store()); err != nil {
+	if err := recordBootstrapScript(s); err != nil {
 		return err
 	}
 
@@ -264,7 +265,7 @@ func signBootstrapScript(root string, signer *pgpcrypto.Identity) error {
 
 // recordBootstrapScript stores the digest of the script at the store root, if
 // one is present (R5.8).
-func recordBootstrapScript(s *store.Store) error {
+func recordBootstrapScript(s *core.Session) error {
 	path := filepath.Join(s.Root(), BootstrapScriptName)
 	raw, err := os.ReadFile(path)
 	if err != nil {

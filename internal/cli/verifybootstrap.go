@@ -49,14 +49,14 @@ func newVerifyBootstrapCmd() *cobra.Command {
 			digest := hex.EncodeToString(sum[:])
 
 			if record {
-				if err := s.Store().SetBootstrapSHA256(digest); err != nil {
+				if err := s.SetBootstrapSHA256(digest); err != nil {
 					return err
 				}
 				fmt.Printf("Recorded %s as the expected digest for %s.\n", digest, BootstrapScriptName)
 				return nil
 			}
 
-			recorded := s.Store().Meta().BootstrapSHA256
+			recorded := s.Meta().BootstrapSHA256
 			switch {
 			case recorded == "":
 				return fmt.Errorf("no digest is recorded for %s in this store, so there is nothing "+
