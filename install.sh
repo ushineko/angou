@@ -11,17 +11,39 @@ MIME_DIR="${HOME}/.local/share/mime/packages"
 ICON_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+SIGNING_KEY="${HOME}/.config/angou/release-signing.asc"
+
 DRY_RUN=0
 WITH_GUI=0
+PUBLISH_TO=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
         --with-gui) WITH_GUI=1 ;;
+        --publish-to=*) PUBLISH_TO="${arg#--publish-to=}" ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run] [--with-gui]"
-            echo
-            echo "  --dry-run    Show what would be installed, change nothing"
-            echo "  --with-gui   Also build and install angou-gui (needs CGO)"
+            cat <<'USAGE'
+Usage: install.sh [--dry-run] [--with-gui] [--publish-to=STORE]
+
+  --dry-run             Show what would be installed, change nothing
+  --with-gui            Also build and install angou-gui (needs CGO)
+  --publish-to=STORE    Also put signed binaries and the installer into STORE,
+                        so a machine with no angou can install it from there
+
+--publish-to is not the default, and the reason is worth reading before you use
+it. Putting binaries in the store means signing them, and the signing key decides
+which binaries every future bootstrap will accept as genuine. Left on this
+machine, it is one compromise away from letting someone plant a binary that your
+other machines install and run. It is written to:
+
+    ~/.config/angou/release-signing.asc
+
+and you should move it to offline storage once this finishes. You do not need it
+again until you publish a new version.
+
+If you can install angou on your other machines the ordinary way, you do not need
+any of this and the store does not need to carry binaries at all.
+USAGE
             exit 0
             ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
@@ -44,8 +66,44 @@ if ! command -v go >/dev/null 2>&1; then
     exit 1
 fi
 
+# Publishing ends in `angou release`, which asks for the store's recovery
+# passphrase on the terminal. Check for one now rather than after several minutes
+# of cross-compiling.
+if [ -n "$PUBLISH_TO" ] && [ ! -t 0 ] && [ "$DRY_RUN" -eq 0 ]; then
+    echo "Error: --publish-to needs an interactive terminal: putting binaries in the" >&2
+    echo "       store means opening it, and that asks for your recovery passphrase." >&2
+    exit 1
+fi
+
+# The release-signing fingerprint has to be compiled into the binary, so it must
+# be known before anything is built (spec 001 R5.4.1). A build without one
+# refuses to install from a store rather than trusting any signature it can
+# verify, which is the correct default for an ordinary install.
+RELEASE_KEY=""
+if [ -n "$PUBLISH_TO" ]; then
+    if [ ! -f "$SIGNING_KEY" ]; then
+        echo "Creating a release-signing key at ${SIGNING_KEY} ..."
+        run mkdir -p "$(dirname "$SIGNING_KEY")"
+        run make -C "$REPO_DIR" build-static
+        run "${REPO_DIR}/angou" release --new-signing-key "$SIGNING_KEY"
+    else
+        echo "Reusing the release-signing key at ${SIGNING_KEY} ..."
+    fi
+    if [ "$DRY_RUN" -eq 0 ]; then
+        # Reuse rather than rotate: binaries already installed elsewhere pin this
+        # fingerprint, and a new key would make them refuse the store.
+        RELEASE_KEY="$(gpg --show-keys --with-colons "$SIGNING_KEY" 2>/dev/null |
+            awk -F: '/^fpr:/{print $10; exit}')"
+        if [ -z "$RELEASE_KEY" ]; then
+            echo "Error: could not read a fingerprint from ${SIGNING_KEY}" >&2
+            exit 1
+        fi
+        echo "Release-signing key: ${RELEASE_KEY}"
+    fi
+fi
+
 echo "Building the CLI ..."
-run make -C "$REPO_DIR" build-static
+run make -C "$REPO_DIR" build-static RELEASE_KEY="$RELEASE_KEY"
 
 echo "Installing the CLI to ${BIN_DIR} ..."
 run install -Dm755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
@@ -76,6 +134,61 @@ else
     cat "${REPO_DIR}/packaging/magic" >> "${HOME}/.magic"
 fi
 
+# If a store is already there and carries no binaries, offer rather than require
+# the user to have known about --publish-to. Asked, not assumed: it creates a
+# signing key, and that is a decision rather than a detail.
+if [ -z "$PUBLISH_TO" ] && [ "$DRY_RUN" -eq 0 ]; then
+    CANDIDATE="${ANGOU_STORE:-}"
+    if [ -n "$CANDIDATE" ] && [ -f "${CANDIDATE}/store.angou" ] &&
+        ! ls "${CANDIDATE}/bootstrap"/angou-* >/dev/null 2>&1; then
+        echo
+        echo "The store at ${CANDIDATE} carries no angou binaries, so a machine that does not"
+        echo "already have angou cannot install it from there. Adding them means creating a"
+        echo "release-signing key, which you should then move offline: it decides which"
+        echo "binaries every future bootstrap accepts."
+        echo
+        if [ -t 0 ]; then
+            printf "Add them now? [y/N] "
+            read -r reply
+            case "$reply" in
+                [Yy]*) PUBLISH_TO="$CANDIDATE" ;;
+                *) echo "Skipped. Run install.sh --publish-to=${CANDIDATE} later if you change your mind." ;;
+            esac
+        else
+            echo "Not asking, because this is not an interactive shell."
+            echo "Run: install.sh --publish-to=${CANDIDATE}"
+        fi
+    fi
+fi
+
+# Publishing needs the fingerprint compiled in, and the binary was already built
+# above. Rebuild with the key pinned when the answer came from the prompt.
+if [ -n "$PUBLISH_TO" ] && [ -z "$RELEASE_KEY" ] && [ "$DRY_RUN" -eq 0 ]; then
+    if [ ! -f "$SIGNING_KEY" ]; then
+        echo "Creating a release-signing key at ${SIGNING_KEY} ..."
+        mkdir -p "$(dirname "$SIGNING_KEY")"
+        "${BIN_DIR}/angou" release --new-signing-key "$SIGNING_KEY"
+    fi
+    RELEASE_KEY="$(gpg --show-keys --with-colons "$SIGNING_KEY" 2>/dev/null |
+        awk -F: '/^fpr:/{print $10; exit}')"
+    if [ -z "$RELEASE_KEY" ]; then
+        echo "Error: could not read a fingerprint from ${SIGNING_KEY}" >&2
+        exit 1
+    fi
+    echo "Rebuilding the CLI with release key ${RELEASE_KEY} pinned ..."
+    make -C "$REPO_DIR" build-static RELEASE_KEY="$RELEASE_KEY"
+    install -Dm755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
+fi
+
+if [ -n "$PUBLISH_TO" ]; then
+    echo "Building binaries for every supported platform ..."
+    run make -C "$REPO_DIR" build-all RELEASE_KEY="$RELEASE_KEY"
+
+    echo "Publishing them into ${PUBLISH_TO} ..."
+    run "${BIN_DIR}/angou" release \
+        --store "$PUBLISH_TO" --dist "${REPO_DIR}/dist" --signing-key "$SIGNING_KEY"
+fi
+
 echo
 echo "Done."
 case ":${PATH}:" in
@@ -89,3 +202,12 @@ echo
 echo "That makes a store, shows you a recovery passphrase once, and sets this machine"
 echo "up so you are not asked for it again here. On any other machine, once the store"
 echo "has synced there, run: angou bootstrap --store ~/Dropbox/angou"
+
+if [ -n "$PUBLISH_TO" ]; then
+    echo
+    echo "The store now carries signed binaries, so a machine with no angou can install"
+    echo "one from it by running bootstrap.sh in the store directory."
+    echo
+    echo "Move ${SIGNING_KEY} to offline storage and delete it from"
+    echo "this machine. It decides which binaries every future bootstrap will accept."
+fi

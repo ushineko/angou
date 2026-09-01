@@ -180,7 +180,8 @@ func reportBootstrapNamespace(w *tabwriter.Writer, dir string, s *store.Store) {
 	}
 	artifacts, err := release.List(filepath.Join(dir, store.BootstrapDir))
 	if err != nil || len(artifacts) == 0 {
-		report(w, "platform binaries", "none — this store cannot bootstrap a bare machine")
+		report(w, "platform binaries", "none — this store cannot install angou on a machine that lacks it")
+		report(w, "  to change that", "run `angou release` (optional; see the README)")
 		return
 	}
 	report(w, "platform binaries", fmt.Sprintf("%d across %s", len(artifacts), strings.Join(release.Platforms(filepath.Join(dir, store.BootstrapDir)), ", ")))

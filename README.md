@@ -29,7 +29,7 @@ stays where you put it.*
 - [Using it](#using-it)
   - [Making a store](#making-a-store)
   - [Putting things in and getting them out](#putting-things-in-and-getting-them-out)
-  - [Setting up another machine](#setting-up-another-machine)
+  - [Using the store on your other machines](#using-the-store-on-your-other-machines)
   - [Holding the key for a while](#holding-the-key-for-a-while)
   - [Setting up a new machine](#setting-up-a-new-machine)
   - [When something looks wrong](#when-something-looks-wrong)
@@ -123,7 +123,35 @@ the key stays under your recovery password instead.
 
 ## Bootstrapping a new machine
 
-Copy the store over, then:
+**If the machine already has `angou`**, there is nothing to bootstrap in this sense. Let
+the store sync there, and `angou ls` works immediately against your recovery passphrase;
+`angou bootstrap` then stops it asking. That is the ordinary case and the rest of this
+section does not apply to it.
+
+The rest is for a machine that does not have `angou` at all, and it comes in two
+flavours depending on what you put in the store.
+
+**If you can install it normally** — the machine has Go, or you can copy a binary onto
+it — do that, and you are in the ordinary case above. This is the simplest answer and
+usually the right one.
+
+**If you want the store itself to carry the program**, so a machine needs nothing but
+the store and `gpg`, then it has to be put there first. The easiest way is to let the
+installer do it:
+
+```bash
+./install.sh --publish-to ~/Dropbox/angou
+```
+
+`install.sh` also notices on its own: if `ANGOU_STORE` points at a store that carries no
+binaries, it says so and offers. It asks rather than assuming, because publishing means
+creating a release-signing key and that is a decision — the key decides which binaries
+every future bootstrap accepts, so leave it on the machine and one compromise there
+becomes code execution on all the others. Move it offline when the installer tells you
+to.
+
+A store made by `angou init` carries no binaries, and `angou doctor` says so. Once it
+does:
 
 ```bash
 cd /path/to/store
@@ -247,10 +275,25 @@ the stored path decides where the write lands, anyone who can write to your stor
 chooses that path, and confining it to a directory you named is what stops a stored
 path from writing somewhere else on your disk.
 
-### Setting up another machine
+### Using the store on your other machines
 
-`init` already did this for the machine you created the store on. On any *other*
-machine, once the store has synced there:
+This is what the store is for, and it needs no export step and no re-encryption. The
+store holds one keypair, carried inside it, so a file encrypted on one machine opens on
+any machine that can open the store.
+
+Let the store sync across — Dropbox, `rsync`, a USB stick, it does not matter — and it
+already works there:
+
+```bash
+angou ls                            # asks for the recovery passphrase
+angou dec work/.secrets.env         # the file you encrypted on the other machine
+```
+
+The store does not have to sit at the same path on both machines, and nothing about the
+first machine has to travel with it. The recovery passphrase is the one thing you carry
+in your head.
+
+Then, once, on that machine:
 
 ```bash
 angou bootstrap
@@ -306,6 +349,12 @@ lifetime is the real protection, not the socket permissions, which is why `--ttl
 and why `agent stop` is worth reaching for when you are done rather than waiting it out.
 
 ### Setting up a new machine
+
+Everything here is **optional**. It is for the case where a machine has no `angou` and
+you would rather not install one the usual way — you want the store to carry the program
+so that the machine needs nothing but the store and `gpg`. If you are happy to install
+angou on the new machine as you did on the first, skip this section entirely; a store
+made by `angou init` carries no binaries and does not need to.
 
 A store can carry the tool that opens it. From a machine that already works:
 
