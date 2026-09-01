@@ -208,7 +208,7 @@ logical paths exist, which change, and how often — the deterministic names are
 metadata channel that survives an identity rotation unless the naming key rotates with
 it. Metadata rotation is part of compromise recovery, not a separate operation.
 
-R4.4 `docs/compromise-recovery.md` documents the full response to a lost or
+R4.4 [`docs/compromise-recovery.md`](../docs/compromise-recovery.md) documents the full response to a lost or
 compromised machine, because `rekey --identity` alone is insufficient: a stolen machine
 may still hold a sync-service session token, the local keyring, an unlocked wallet, a
 running agent, and possibly an observed recovery passphrase. The runbook covers, in
@@ -374,8 +374,28 @@ path. OpenPGP via `github.com/ProtonMail/go-crypto/openpgp`; KWallet via
 has no package prerequisites on a bare system.
 
 R6.4 CLI structure uses `spf13/cobra`, consistent with `aiq_agent_go`. Subcommands:
-`enc`, `dec`, `ls`, `get`, `rm`, `mv`, `reindex`, `rekey`, `bootstrap`, `agent`,
-`clone`, `verify-bootstrap`.
+`init`, `enc`, `dec`, `ls`, `get`, `rm`, `mv`, `reindex`, `rekey`, `passwd`, `prune`,
+`doctor`, `bootstrap`, `agent`, `clone`, `release`, `verify-bootstrap`.
+
+R6.4.1 Four of these exist specifically to make compromise recovery (R4.4) executable
+rather than aspirational, and are specified here so the runbook does not document a
+tool that was never designed:
+
+- `passwd` — rotate the recovery passphrase and rewrite the key bundle under it,
+  pruning superseded bundles. Distinct from `rekey`: it changes what guards the key,
+  not the key itself.
+- `prune --bootstrap --keep N` — remove superseded binaries and key bundles from
+  `bootstrap/` beyond the retention floor (R5.10).
+- `doctor --old-key <fingerprint>` — assert that a named key opens nothing in the
+  store. This is the verification step after `rekey --identity`; without it the
+  operator has no way to confirm the rotation was complete rather than partial.
+- `agent stop` — terminate the session cache on a machine, releasing cached key
+  material, `K_name`, and the decrypted index before their TTL expires.
+
+`ls --long` renders envelope metadata for the whole store, which is what an operator
+works from when enumerating the credentials that need rotating at source.
+`bootstrap --force` re-runs bootstrap on a machine that already holds a superseded
+key.
 
 R6.5 Because there is no `gpg-agent`, `angou agent` provides session caching: a unix
 socket in `$XDG_RUNTIME_DIR` at 0600 holding unlocked key material, `K_name`, and the

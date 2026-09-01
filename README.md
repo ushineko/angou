@@ -203,6 +203,7 @@ angou/
 ├── config/                 pinned linter configuration
 ├── specs/                  design specs
 ├── docs/                   format reference and runbooks
+│   └── compromise-recovery.md
 ├── tests/                  test suite
 └── validation-reports/     release validation records
 ```
@@ -238,6 +239,10 @@ machine" cannot honestly be tested on this one.
   on any SSD, overwriting a file does not reliably destroy the old copy. The default is
   to leave your original in place precisely so this is your decision and not a false
   promise.
+- **Rotating `angou` does not un-disclose anything.** If someone read your store, the
+  secrets in it are out, permanently. Rekeying protects the store from here on; the
+  actual work is going to each service and changing the credential. See
+  [docs/compromise-recovery.md](docs/compromise-recovery.md).
 - **`rekey --identity` rewrites the whole store.** It is the right response to a
   compromised machine and the wrong thing to run casually. It works on a copy and
   commits at the end, so an interruption leaves the original intact.
