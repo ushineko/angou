@@ -28,6 +28,9 @@ package core
 import (
 	"errors"
 	"fmt"
+
+	"github.com/ushineko/angou/internal/keyring"
+	"github.com/ushineko/angou/internal/passphrase"
 )
 
 // ErrNoSecret reports that no secret can be supplied without interaction.
@@ -94,6 +97,22 @@ func (e Events) notice(msg string) {
 func (e Events) noticef(format string, args ...any) {
 	e.notice(fmt.Sprintf(format, args...))
 }
+
+// ValidateKeyringBackend checks the configured keyring backend name before any
+// command does work, so a misspelt one is reported rather than discovered
+// halfway through.
+func ValidateKeyringBackend() error { return keyring.ValidateBackend() }
+
+// GeneratePassphrase returns a recovery passphrase and its entropy in bits.
+//
+// It is shown to the user exactly once, after the store it opens exists: telling
+// someone to write down a phrase before the thing it unlocks has been created
+// hands them a phrase that opens nothing when creation fails.
+func GeneratePassphrase() (string, float64, error) { return passphrase.Generate() }
+
+// CheckPassphrase reports the entropy of a user-chosen passphrase, or an error
+// if it is too weak to protect the store.
+func CheckPassphrase(p string) (float64, error) { return passphrase.Check(p) }
 
 // Severity ranks a finding so a front end can present it by importance.
 //

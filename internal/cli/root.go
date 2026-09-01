@@ -16,7 +16,6 @@ import (
 	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/core"
-	"github.com/ushineko/angou/internal/keyring"
 )
 
 // StoreEnv names the environment variable holding the default store directory.
@@ -44,7 +43,7 @@ func Root() *cobra.Command {
 		// Checked once, before any command does work, so a misspelt keyring
 		// backend is reported rather than discovered halfway through.
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			return keyring.ValidateBackend()
+			return core.ValidateKeyringBackend()
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,

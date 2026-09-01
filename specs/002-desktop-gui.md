@@ -13,8 +13,24 @@ Implementation proceeds in passes.
   shim of R5C. The first is the mitigation for the toolkit's one real cost and belonged
   in the spec from the start; the other two are consequences of the toolkit that only
   surfaced once there was a window to look at.
-- **Pass 2 (next)** extracts `internal/core` and moves the CLI onto it.
-- **Pass 3** wires the GUI to the core, command by command, and lands the parity test.
+- **Pass 2** extracted `internal/core` and moved the CLI onto it. Complete.
+
+  Everything reaches the store through a `core.Session`, so the rule that neither front
+  end assembles an operation out of store internals is held by the compiler. What
+  `internal/cli` still names from the other packages is constants and types — the blob
+  and index filenames, the encoding enum, the envelope — used to render output.
+
+  Two contracts came out of it. `Secrets` supplies passphrases, so a package that never
+  prompts can still need one. `Decider` answers questions that arise mid-operation, which
+  is what makes `--overwrite` and `--auto` and the GUI's dialogs one mechanism rather than
+  three. `EncryptProgress` reports per-file as the work runs (R3.4), because a summary at
+  the end would change what both front ends show while a long operation is in flight.
+
+  The claim that behaviour is unchanged is checked by `tools/regress.sh`, which diffs the
+  binary against a baseline commit, not only by the suite. That distinction was earned:
+  the first slice reordered two `--verbose` lines and every test stayed green.
+- **Pass 3 (next)** wires the GUI to the core, command by command, and lands the parity
+  test.
 
 ---
 
@@ -352,12 +368,12 @@ server. A GUI test that requires one is skipped there, not failed.
 
 ### Pass 2 — core extraction
 
-- [ ] `internal/core` exists and holds every operation of R4.1 as a headless function.
-- [ ] `internal/cli` renders core results and contains no store logic of its own.
-- [ ] The secret-supplying callback of R3.2 and the decision callback of R3.3 are in
+- [x] `internal/core` exists and holds every operation of R4.1 as a headless function.
+- [x] `internal/cli` renders core results and contains no store logic of its own.
+- [x] The secret-supplying callback of R3.2 and the decision callback of R3.3 are in
       place, and the CLI uses both.
-- [ ] Cancellation and progress reporting (R3.4) are implemented for the long operations.
-- [ ] `make e2e` passes with no test changed. CLI output is byte-for-byte unchanged.
+- [x] Cancellation and progress reporting (R3.4) are implemented for the long operations.
+- [x] `make e2e` passes with no test changed. CLI output is byte-for-byte unchanged.
 
 ### Pass 3 — wiring
 

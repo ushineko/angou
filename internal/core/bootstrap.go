@@ -5,11 +5,13 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
+	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
 )
 
@@ -184,4 +186,60 @@ func OpenWithExportedIdentity(dir string, exported []byte, ev Events) (*Session,
 		return nil, err
 	}
 	return &Session{st: s, ev: ev}, nil
+}
+
+// HasLocalKey reports whether this machine holds a local key for the store.
+func HasLocalKey(dir string) bool { return localkey.Exists(dir) }
+
+// RotateLocalPassword replaces this machine's unlock passphrase and the local
+// key it protects. The store is untouched and no other machine is affected.
+//
+// The replacement is written to a staging path first, so the wallet entry — the
+// only copy of the passphrase for the key already in place — is not overwritten
+// until its replacement is durable on disk. The remaining window is a single
+// rename; if the process dies inside it, the machine needs
+// `angou bootstrap --force`, which is recoverable with the recovery passphrase.
+func (s *Session) RotateLocalPassword() error {
+	dir := s.st.Root()
+
+	exported, err := s.ExportLocalIdentity()
+	if err != nil {
+		return err
+	}
+	defer prompt.Zero(exported)
+
+	ring, err := keyring.Open()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ring.Close() }()
+
+	fresh, err := localkey.GenerateUnlockPassphrase()
+	if err != nil {
+		return err
+	}
+	defer prompt.Zero(fresh)
+
+	fingerprint := s.st.Fingerprint()
+	staged, err := localkey.WriteStaged(dir, fingerprint, exported, fresh)
+	if err != nil {
+		return err
+	}
+	if err := ring.Set(fingerprint, fresh); err != nil {
+		_ = localkey.DiscardStaged(staged)
+		return err
+	}
+	if err := localkey.CommitStaged(staged); err != nil {
+		return err
+	}
+	if err := SelfTest(dir, s.ev); err != nil {
+		return fmt.Errorf("rekey --local wrote local state but its self-test failed: %w", err)
+	}
+	return nil
+}
+
+// PruneBinaries removes superseded platform binaries from the bootstrap
+// namespace, keeping the newest few per platform.
+func (s *Session) PruneBinaries(keep int) ([]string, error) {
+	return release.Prune(filepath.Join(s.st.Root(), store.BootstrapDir), keep)
 }

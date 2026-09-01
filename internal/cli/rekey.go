@@ -4,17 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ushineko/angou/internal/core"
-	"github.com/ushineko/angou/internal/keyring"
-	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/passphrase"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
-	"github.com/ushineko/angou/internal/store"
 )
 
 func newRekeyCmd() *cobra.Command {
@@ -61,7 +57,7 @@ func rekeyLocal() error {
 	if err != nil {
 		return err
 	}
-	if !localkey.Exists(dir) {
+	if !core.HasLocalKey(dir) {
 		return fmt.Errorf("this machine holds no local key for %s, so there is no machine "+
 			"password to rotate.\nRun `angou bootstrap` first", dir)
 	}
@@ -70,44 +66,8 @@ func rekeyLocal() error {
 	if err != nil {
 		return err
 	}
-	exported, err := s.ExportLocalIdentity()
-	if err != nil {
+	if err := s.RotateLocalPassword(); err != nil {
 		return err
-	}
-	defer prompt.Zero(exported)
-
-	ring, err := keyring.Open()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = ring.Close() }()
-
-	fresh, err := localkey.GenerateUnlockPassphrase()
-	if err != nil {
-		return err
-	}
-	defer prompt.Zero(fresh)
-
-	// Write the replacement local key to a staging path first, so the wallet
-	// entry — the only copy of the passphrase for the key already in place — is
-	// not overwritten until its replacement is durable on disk. The remaining
-	// window is a single rename; if the process dies inside it, the machine
-	// needs `angou bootstrap --force`, which is recoverable with the recovery
-	// passphrase.
-	fingerprint := s.Fingerprint()
-	staged, err := localkey.WriteStaged(dir, fingerprint, exported, fresh)
-	if err != nil {
-		return err
-	}
-	if err := ring.Set(fingerprint, fresh); err != nil {
-		_ = localkey.DiscardStaged(staged)
-		return err
-	}
-	if err := localkey.CommitStaged(staged); err != nil {
-		return err
-	}
-	if err := core.SelfTest(dir, events()); err != nil {
-		return fmt.Errorf("rekey --local wrote local state but its self-test failed: %w", err)
 	}
 	fmt.Printf("Rotated the machine password for %s.\n", dir)
 	fmt.Fprintln(os.Stderr, "No blob changed and no other machine is affected.")
@@ -155,7 +115,7 @@ func rekeyIdentity() error {
 
 	// The local key still wraps the old identity, so this machine must be
 	// bootstrapped again before it can open the rotated store.
-	if localkey.Exists(dir) {
+	if core.HasLocalKey(dir) {
 		if err := forgetLocal(dir); err != nil {
 			return err
 		}
@@ -249,7 +209,7 @@ func newPruneCmd() *cobra.Command {
 				fmt.Println("Kept the key bundle that opens this store and removed the rest.")
 			}
 			if binaries {
-				removed, err := release.Prune(filepath.Join(s.Root(), store.BootstrapDir), keep)
+				removed, err := s.PruneBinaries(keep)
 				if err != nil {
 					return err
 				}

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -9,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ushineko/angou/internal/agent"
-	"github.com/ushineko/angou/internal/prompt"
+	"github.com/ushineko/angou/internal/core"
 )
 
 func newAgentCmd() *cobra.Command {
@@ -61,40 +60,18 @@ func newAgentStartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			socket, err := agent.SocketPath(dir)
+			socket, err := core.AgentSocket(dir)
 			if err != nil {
 				return err
 			}
-			if client, err := agent.Dial(dir); err == nil {
-				if remaining, _, err := client.Status(); err == nil {
-					return fmt.Errorf("an agent is already holding this store for another %s.\n"+
-						"Stop it first with `angou agent stop`", remaining.Round(time.Second))
-				}
+			if st, err := core.AgentState(dir); err == nil && st.Running && !st.Expired {
+				return fmt.Errorf("an agent is already holding this store for another %s.\n"+
+					"Stop it first with `angou agent stop`", st.Remaining.Round(time.Second))
 			}
 
 			s, err := unlock()
 			if err != nil {
 				return err
-			}
-			identity, err := s.ExportLocalIdentity()
-			if err != nil {
-				return err
-			}
-			defer prompt.Zero(identity)
-
-			// NewServer takes its own copy, so this one is wiped straight away
-			// rather than at return: the agent then runs for the whole TTL with
-			// one copy of the key in memory instead of two.
-			server := agent.NewServer(socket, s.Fingerprint(), identity, ttl)
-			prompt.Zero(identity)
-			if err := server.Listen(); err != nil {
-				return err
-			}
-			// Best-effort, and reported as such. Failing to lock memory is not a
-			// reason to refuse to run, and claiming success would be worse than
-			// saying it did not happen.
-			if err := agent.LockMemory(); err != nil {
-				logf("could not lock memory (%v); key material may reach swap", err)
 			}
 
 			fmt.Printf("Holding %s for %s.\n", dir, describeTTL(ttl))
@@ -107,7 +84,7 @@ func newAgentStartCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Note: %s is long enough that the lifetime stops being much of a\n"+
 					"limit. `angou agent stop` ends it whenever you are done.\n", describeTTL(ttl))
 			}
-			return server.Serve()
+			return core.StartAgent(s, socket, ttl, events())
 		},
 	}
 	cmd.Flags().StringVar(&ttlText, "ttl", agent.DefaultTTL.String(),
@@ -132,16 +109,13 @@ func newAgentStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client, err := agent.Dial(dir)
+			stopped, err := core.StopAgent(dir)
 			if err != nil {
-				if errors.Is(err, agent.ErrNoAgent) {
-					fmt.Printf("No agent is running for %s.\n", dir)
-					return nil
-				}
 				return err
 			}
-			if err := client.Stop(); err != nil {
-				return err
+			if !stopped {
+				fmt.Printf("No agent is running for %s.\n", dir)
+				return nil
 			}
 			fmt.Printf("Stopped the agent for %s.\n", dir)
 			return nil
@@ -159,25 +133,20 @@ func newAgentStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client, err := agent.Dial(dir)
+			st, err := core.AgentState(dir)
 			if err != nil {
-				if errors.Is(err, agent.ErrNoAgent) {
-					fmt.Printf("No agent is running for %s.\n", dir)
-					return nil
-				}
 				return err
 			}
-			remaining, fingerprint, err := client.Status()
-			if err != nil {
-				if errors.Is(err, agent.ErrExpired) {
-					fmt.Printf("The agent for %s has expired and is shutting down.\n", dir)
-					return nil
-				}
-				return err
+			switch {
+			case !st.Running:
+				fmt.Printf("No agent is running for %s.\n", dir)
+			case st.Expired:
+				fmt.Printf("The agent for %s has expired and is shutting down.\n", dir)
+			default:
+				fmt.Printf("Holding %s (identity %s) for another %s.\n",
+					dir, st.Fingerprint, st.Remaining.Round(time.Second))
+				fmt.Printf("Socket: %s\n", st.Socket)
 			}
-			fmt.Printf("Holding %s (identity %s) for another %s.\n",
-				dir, fingerprint, remaining.Round(time.Second))
-			fmt.Printf("Socket: %s\n", client.Socket())
 			return nil
 		},
 	}

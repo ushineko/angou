@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ushineko/angou/internal/core"
-	"github.com/ushineko/angou/internal/passphrase"
 	"github.com/ushineko/angou/internal/prompt"
 )
 
@@ -52,7 +51,7 @@ func newInitCmd() *cobra.Command {
 				generated bool
 			)
 			if generate {
-				phrase, b, err := passphrase.Generate()
+				phrase, b, err := core.GeneratePassphrase()
 				if err != nil {
 					return err
 				}
@@ -63,7 +62,7 @@ func newInitCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				bits, err = passphrase.Check(string(secret))
+				bits, err = core.CheckPassphrase(string(secret))
 				if err != nil {
 					prompt.Zero(secret)
 					return fmt.Errorf("%w\nRerun with --generate to have angou choose one for you", err)

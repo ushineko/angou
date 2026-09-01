@@ -8,7 +8,6 @@ import (
 
 	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/core"
-	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
 )
 
@@ -41,7 +40,7 @@ func newBootstrapCmd() *cobra.Command {
 			if forget {
 				return forgetLocal(dir)
 			}
-			if localkey.Exists(dir) && !force {
+			if core.HasLocalKey(dir) && !force {
 				return fmt.Errorf("this machine is already bootstrapped for %s.\n"+
 					"Pass --force to replace the local key, or --forget to remove it", dir)
 			}
