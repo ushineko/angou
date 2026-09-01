@@ -12,7 +12,10 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	var generate bool
+	var (
+		generate    bool
+		noBootstrap bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "init [store-directory]",
@@ -77,16 +80,39 @@ func newInitCmd() *cobra.Command {
 			fmt.Printf("Initialized store at %s\n", s.Root())
 			fmt.Printf("Identity fingerprint: %s\n", s.Fingerprint())
 
-			// Without this, every command asks for the recovery passphrase and
-			// spends a fifth of a second on it. That is the headless fallback,
-			// not the intended way to use the tool, and someone who has just
-			// made a store has no way to know there is a better one.
-			fmt.Fprintf(os.Stderr, "\nNext, so you are not asked for that passphrase again on this machine:\n"+
-				"    angou bootstrap --store %s\n", s.Root())
+			if noBootstrap {
+				fmt.Fprintf(os.Stderr, "\nThis machine was not set up, so every command will ask for the recovery\n"+
+					"passphrase. To change that later:\n    angou bootstrap --store %s\n", s.Root())
+				return nil
+			}
+
+			// Set this machine up straight away. Requiring a second command
+			// would be asking for the same passphrase that was just used, to do
+			// something with no separate decision in it — and until it is run,
+			// every command asks for that passphrase, which is the fallback for
+			// machines without a keyring rather than how the tool is meant to
+			// work.
+			exported, err := s.ExportLocalIdentity()
+			if err != nil {
+				return err
+			}
+			defer prompt.Zero(exported)
+
+			done, err := setUpMachine(dir, s.Fingerprint(), exported, s)
+			if err != nil {
+				return err
+			}
+			if done {
+				fmt.Fprintln(os.Stderr, "\nThis machine is set up: commands will not ask for the recovery passphrase\n"+
+					"here. Keep it anyway — it is the only thing that opens the store on a machine\n"+
+					"that has not been set up.")
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&generate, "generate", false,
 		"generate the recovery passphrase and display it once, instead of prompting")
+	cmd.Flags().BoolVar(&noBootstrap, "no-bootstrap", false,
+		"do not set this machine up; every command will ask for the recovery passphrase")
 	return cmd
 }

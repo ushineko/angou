@@ -27,3 +27,36 @@ func TestBootstrapWithoutAKeyringChangesNothing(t *testing.T) {
 	e.mustRun("enc", "--as", "n.env", src)
 	require.Equal(t, "FIELD=value\n", e.mustRun("dec", "n.env").stdout)
 }
+
+// TestInitWithoutAKeyringSaysSo covers the other half of R2.5 at the point a
+// store is created. init sets the machine up itself; where it cannot, it must
+// say so rather than leaving the user to discover it one passphrase prompt at a
+// time.
+func TestInitWithoutAKeyringSaysSo(t *testing.T) {
+	e := newEnv(t) // the harness gives the child no reachable session bus
+
+	r := e.mustRun("init")
+	require.Contains(t, r.stderr, "No keyring is available")
+	require.Contains(t, r.stderr, "recovery passphrase")
+	require.Contains(t, r.stderr, "Round-trip self-test passed",
+		"init should confirm the store it just made actually works")
+	require.False(t, localkey.Exists(e.store))
+
+	// And the store is usable by the recovery route.
+	src := e.writePlaintext("n.env", []byte("FIELD=value\n"), 0o600)
+	e.mustRun("enc", "--as", "n.env", src)
+	require.Equal(t, "FIELD=value\n", e.mustRun("dec", "n.env").stdout)
+}
+
+// TestInitNoBootstrapOptsOut checks the escape hatch, for a machine the user
+// does not want holding a copy of the key.
+func TestInitNoBootstrapOptsOut(t *testing.T) {
+	e := newEnv(t)
+
+	r := e.mustRun("init", "--no-bootstrap")
+	require.Contains(t, r.stderr, "was not set up")
+	require.Contains(t, r.stderr, "angou bootstrap --store")
+	require.NotContains(t, r.stderr, "No keyring is available",
+		"opting out should not report a keyring problem it never looked for")
+	require.False(t, localkey.Exists(e.store))
+}

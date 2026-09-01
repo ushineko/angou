@@ -291,3 +291,28 @@ func TestRekeyLocalChangesNothingInTheStore(t *testing.T) {
 		require.Equal(t, content, e.mustRunNoPassphrase("dec", path).stdout)
 	}
 }
+
+// TestInitSetsTheMachineUp covers the first-run path that matters most.
+//
+// Requiring a separate `angou bootstrap` after `angou init` asked for the same
+// passphrase that had just been used, to do something with no separate decision
+// in it — and until it was run, every command prompted. That is the fallback for
+// machines with no keyring, not the way the tool is meant to work, and a new
+// user had no way to know the difference.
+func TestInitSetsTheMachineUp(t *testing.T) {
+	e := keyringEnv(t)
+
+	r := e.mustRun("init")
+	require.Contains(t, r.stderr, "This machine is set up")
+	require.Contains(t, r.stderr, "Round-trip self-test passed")
+	require.True(t, localkey.Exists(e.store), "init must leave a local key behind")
+
+	// The point of all of it: no passphrase from here on.
+	src := e.writePlaintext("i.env", []byte("FIELD=value\n"), 0o600)
+	e.mustRunNoPassphrase("enc", "--as", "i.env", src)
+	require.Equal(t, "FIELD=value\n", e.mustRunNoPassphrase("dec", "i.env").stdout)
+	require.Contains(t, e.mustRunNoPassphrase("ls").stdout, "i.env")
+
+	// And a second bootstrap is correctly refused as redundant.
+	require.NotZero(t, e.run("bootstrap").code)
+}

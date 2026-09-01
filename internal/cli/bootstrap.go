@@ -76,50 +76,15 @@ func newBootstrapCmd() *cobra.Command {
 			}
 			fingerprint := s.Fingerprint()
 
-			ring, err := keyring.Open()
-			if err != nil {
-				if errors.Is(err, keyring.ErrUnavailable) {
-					// R2.5: no backend, so the key is not re-protected here and
-					// no local state is written. Report it plainly — a machine
-					// that silently kept prompting would look broken.
-					fmt.Fprintf(os.Stderr, "No keyring is available on this machine, so the identity was not\n"+
-						"re-protected here. The store remains reachable with the recovery passphrase.\n"+
-						"Underlying cause: %v\n", err)
-					// The self-test runs on this path too: bootstrap should be
-					// what reports a store it cannot actually use, rather than
-					// the next command the user tries.
-					if err := roundTripSelfTest(s); err != nil {
-						return fmt.Errorf("the store did not pass its round-trip self-test: %w", err)
-					}
-					fmt.Printf("Store %s is usable with the recovery passphrase.\n", dir)
-					fmt.Printf("Identity fingerprint: %s\n", fingerprint)
-					fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
-					return nil
-				}
-				return err
-			}
-			defer func() { _ = ring.Close() }()
-
-			unlockSecret, err := localkey.GenerateUnlockPassphrase()
+			done, err := setUpMachine(dir, fingerprint, exported, s)
 			if err != nil {
 				return err
 			}
-			defer prompt.Zero(unlockSecret)
-
-			// Keyring first: a local key whose passphrase never reached the
-			// keyring is unopenable, whereas a keyring entry with no local key
-			// is merely unused and is overwritten by the next bootstrap.
-			if err := ring.Set(fingerprint, unlockSecret); err != nil {
-				return err
+			if !done {
+				fmt.Printf("Store %s is usable with the recovery passphrase.\n", dir)
+				fmt.Printf("Identity fingerprint: %s\n", fingerprint)
+				return nil
 			}
-			if err := localkey.Write(dir, fingerprint, exported, unlockSecret); err != nil {
-				return err
-			}
-
-			if err := selfTest(dir); err != nil {
-				return fmt.Errorf("bootstrap wrote local state but its self-test failed: %w", err)
-			}
-			fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
 
 			fmt.Printf("Bootstrapped %s on this machine.\n", dir)
 			fmt.Printf("Identity fingerprint: %s\n", fingerprint)
@@ -133,6 +98,64 @@ func newBootstrapCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&forget, "forget", false,
 		"remove this machine's local key and keyring entry, returning it to the recovery passphrase")
 	return cmd
+}
+
+// setUpMachine wraps the identity under a fresh machine password held in the
+// keyring, so this machine can open the store without the recovery passphrase.
+//
+// It reports whether it did anything. Where no keyring backend is reachable it
+// writes nothing and says so, leaving the store on the recovery passphrase
+// (R2.5) — a machine that silently kept prompting would look broken.
+func setUpMachine(dir, fingerprint string, exported []byte, s *store.Store) (bool, error) {
+	// Probe before opening. Opening a wallet can raise a dialog and wait for a
+	// person to answer it, which is correct on a desktop and a hang anywhere
+	// else; this check tells the two apart without prompting, so a machine with
+	// no keyring skips the attempt entirely.
+	if !keyring.Available() {
+		return noKeyring(s, errors.New("no keyring service is running"))
+	}
+	ring, err := keyring.Open()
+	if err != nil {
+		if errors.Is(err, keyring.ErrUnavailable) {
+			return noKeyring(s, err)
+		}
+		return false, err
+	}
+	defer func() { _ = ring.Close() }()
+
+	unlockSecret, err := localkey.GenerateUnlockPassphrase()
+	if err != nil {
+		return false, err
+	}
+	defer prompt.Zero(unlockSecret)
+
+	// Keyring first: a local key whose passphrase never reached the keyring is
+	// unopenable, whereas a keyring entry with no local key is merely unused and
+	// is overwritten by the next bootstrap.
+	if err := ring.Set(fingerprint, unlockSecret); err != nil {
+		return false, err
+	}
+	if err := localkey.Write(dir, fingerprint, exported, unlockSecret); err != nil {
+		return false, err
+	}
+	if err := selfTest(dir); err != nil {
+		return false, fmt.Errorf("local key written but its self-test failed: %w", err)
+	}
+	fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
+	return true, nil
+}
+
+// noKeyring reports that this machine keeps using the recovery passphrase, and
+// checks the store is usable that way before saying so (R2.5).
+func noKeyring(s *store.Store, cause error) (bool, error) {
+	fmt.Fprintf(os.Stderr, "No keyring is available on this machine, so the identity was not\n"+
+		"re-protected here. The store remains reachable with the recovery passphrase.\n"+
+		"Underlying cause: %v\n", cause)
+	if err := roundTripSelfTest(s); err != nil {
+		return false, fmt.Errorf("the store did not pass its round-trip self-test: %w", err)
+	}
+	fmt.Fprintln(os.Stderr, "Round-trip self-test passed.")
+	return false, nil
 }
 
 // roundTripSelfTest writes a temporary blob, reads it back, and removes it,

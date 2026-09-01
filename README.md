@@ -29,7 +29,7 @@ stays where you put it.*
 - [Using it](#using-it)
   - [Making a store](#making-a-store)
   - [Putting things in and getting them out](#putting-things-in-and-getting-them-out)
-  - [Stopping the passphrase prompts](#stopping-the-passphrase-prompts)
+  - [Setting up another machine](#setting-up-another-machine)
   - [Holding the key for a while](#holding-the-key-for-a-while)
   - [Setting up a new machine](#setting-up-a-new-machine)
   - [When something looks wrong](#when-something-looks-wrong)
@@ -188,14 +188,18 @@ export ANGOU_STORE=~/Dropbox/angou
 angou init --generate
 ```
 
-This creates the store, generates its keypair, and prints a recovery passphrase once.
-Write it down before you press anything else. There is no reset: the passphrase is the
-only thing that opens the store on a machine that has not been set up, and if you lose
-it the contents are gone.
+This creates the store, generates its keypair, prints a recovery passphrase once, and
+sets this machine up so you are not asked for that passphrase again here.
 
-Then run `angou bootstrap` (below). Until you do, every command asks for that
-passphrase — the name is accurate about its job, but you only meet that job on a machine
-that has not been set up yet.
+Write the passphrase down before you press anything else. There is no reset: it is the
+only thing that opens the store on a machine that has not been set up, and if you lose
+it the contents are gone. You will not need it day to day — that is what "recovery"
+means — but you will need it on the next machine, and if this machine's keyring entry
+is ever lost.
+
+Where no keyring is available, `init` says so and the store stays on the recovery
+passphrase. `--no-bootstrap` opts out deliberately, for a machine you would rather not
+leave holding a copy of the key.
 
 If you would rather choose your own, leave off `--generate` and you will be prompted.
 A passphrase that scores below 70 bits is refused rather than accepted with a warning,
@@ -243,11 +247,10 @@ the stored path decides where the write lands, anyone who can write to your stor
 chooses that path, and confining it to a directory you named is what stops a stored
 path from writing somewhere else on your disk.
 
-### Stopping the passphrase prompts
+### Setting up another machine
 
-**Do this once, on every machine.** Without it you type the recovery passphrase for
-every single command, which is not what that passphrase is for and is not how the tool
-is meant to be used:
+`init` already did this for the machine you created the store on. On any *other*
+machine, once the store has synced there:
 
 ```bash
 angou bootstrap

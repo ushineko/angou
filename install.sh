@@ -82,12 +82,10 @@ case ":${PATH}:" in
     *":${BIN_DIR}:"*) ;;
     *) echo "Note: ${BIN_DIR} is not on your PATH." ;;
 esac
-echo "Next, two steps:"
+echo "Next:"
 echo
-echo "  1. angou init ~/Dropbox/angou      # make a store; writes down a passphrase"
-echo "  2. angou bootstrap --store ~/Dropbox/angou"
+echo "  angou init ~/Dropbox/angou"
 echo
-echo "The second one is not optional in practice. Without it every command asks for"
-echo "the recovery passphrase and spends a fifth of a second on it; with it, this"
-echo "machine opens the store from your keyring in about five milliseconds. Nothing"
-echo "here can do it for you: it needs a store to exist and a passphrase typed in."
+echo "That makes a store, shows you a recovery passphrase once, and sets this machine"
+echo "up so you are not asked for it again here. On any other machine, once the store"
+echo "has synced there, run: angou bootstrap --store ~/Dropbox/angou"
