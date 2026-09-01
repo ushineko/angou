@@ -149,12 +149,40 @@ func (u *ui) report(what string, err error) {
 	fyne.Do(func() { u.flash(what+": "+err.Error(), StatusBad) })
 }
 
-// ok reports a completed operation and refreshes the current section.
+// ok reports a completed operation, and treats what is on screen as stale.
+//
+// An operation that succeeded has usually changed the store, so refreshing the
+// section without discarding what it was built from would redraw the same
+// out-of-date listing. Invalidating is the safe default: reloading costs one
+// store open, and showing a store that no longer matches reality is how someone
+// removes the wrong file.
 func (u *ui) ok(msg string) {
 	fyne.Do(func() {
 		u.flash(msg, StatusGood)
-		u.refresh()
+		u.invalidate()
 	})
+}
+
+// invalidate discards everything loaded from the store and rebuilds, which
+// makes the sections fetch again. Called on the UI thread.
+func (u *ui) invalidate() {
+	u.entriesOK = false
+	u.doctorOK = false
+	u.agentOK = false
+	u.rebuild()
+}
+
+// opensWithoutAsking reports whether reopening the store would go through
+// silently — a machine holding a local key, or one with a live agent session.
+//
+// It decides whether a section reloads by itself. Where reopening is free the
+// listing should be current, because the store is a directory other things write
+// to: a file encrypted from the command line, or synced in from another machine,
+// is not something the window should keep quiet about until it is restarted.
+// Where reopening means a passphrase prompt, doing that on every navigation
+// would be intolerable, so those machines refresh on request instead.
+func (u *ui) opensWithoutAsking() bool {
+	return u.session.Route == core.RouteLocalKey || u.session.Route == core.RouteAgent
 }
 
 // Loaded data.
@@ -199,7 +227,7 @@ func (u *ui) loadDoctor() {
 		return
 	}
 	go func() {
-		done := u.busy("Inspecting the store and this machine…")
+		done := u.busy("Inspecting this machine…")
 		defer done()
 		r := core.Doctor(dir, core.NoSecrets{}, core.Events{})
 		groups := make([]DoctorGroup, 0, len(r.Sections))
@@ -355,7 +383,7 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 		// Slow in a way that needs saying: creating a store derives a key with
 		// Argon2id and generates a keypair, and a window that looks frozen
 		// invites a second click on a button that must not run twice.
-		done := u.busy("Creating the store at " + dir + "…")
+		done := u.busy("Creating the store…")
 		defer done()
 
 		var (

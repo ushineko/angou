@@ -86,6 +86,15 @@ capability the other lacks.
   differently — a wizard where the CLI takes flags, a checklist where the CLI takes
   `--auto`. What it may not do is leave the operation unreachable, or offer a
   destructive path with weaker confirmation than the CLI's.
+- **The GUI must not show a stale store.** The store is a plain directory that the CLI
+  and whatever syncs it also write to, so anything loaded from it is a snapshot with a
+  shelf life. A section discards what it holds and reloads on arrival where reopening
+  the store is free — a machine holding a local key, or one with a live agent session —
+  and after any operation that succeeded, since an operation that succeeded has usually
+  changed the store. Where reopening means a passphrase prompt, reloading on every
+  navigation would be intolerable, so those machines refresh on request: a Refresh
+  action, F5, and Ctrl+R. Showing a listing that no longer matches the store is how
+  someone removes the wrong file.
 - **Nothing transient may reflow the interface.** Progress and result banners appear in
   a fixed region at the bottom of the window or floated over the content — never
   inserted above it. A banner that pushes the section down moves the row under the

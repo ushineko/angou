@@ -165,6 +165,14 @@ else. No secret appears in the status bar, the window title, or any tooltip.
 **R5.2** The sections are **Store**, **Encrypt**, **Doctor**, **Machine**,
 **Release**, **Appearance**, and **About**.
 
+**R5.3.1** Anything the window loads from the store is a snapshot, and the store is a
+plain directory the CLI and any sync service also write to. A section reloads on arrival
+where reopening the store costs nothing — a local key or a live agent session — and after
+any operation that succeeded. Where reopening would prompt for a passphrase, reloading on
+every navigation is intolerable, so those machines reload on request: a Refresh action,
+F5, and Ctrl+R. A listing that no longer matches the store is how someone removes the
+wrong file.
+
 **R5.3 — Store.** The `ls` listing as a sortable table, with a raw/logical toggle
 mirroring `ls --raw`. Selecting a row enables Decrypt, Extract, Rename, and Remove.
 Toolbar actions cover Encrypt file, Scan directory, Reindex, Prune, and Clone.

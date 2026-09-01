@@ -329,7 +329,7 @@ func (u *ui) cloneDialog() {
 		widget.NewForm(widget.NewFormItem("Destination", to)), noBinaries), func() {
 		from := u.storeDir()
 		go func() {
-			done := u.busy("Copying the store to " + to.Text + "…")
+			done := u.busy("Copying the store…")
 			defer done()
 			n, err := core.CopyStore(from, to.Text, noBinaries.Checked)
 			if err != nil {

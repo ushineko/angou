@@ -20,6 +20,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -184,6 +185,12 @@ func Run(o Options) {
 	)
 	u.nav.OnSelected = func(i widget.ListItemID) {
 		u.current = i
+		// Arriving at a section is a good moment to be current, where being
+		// current is free. The store is a plain directory: the CLI writes to it,
+		// and so does whatever syncs it between machines.
+		if u.opensWithoutAsking() {
+			u.entriesOK, u.doctorOK, u.agentOK = false, false, false
+		}
 		u.show(secs[i].build(u))
 	}
 
@@ -198,6 +205,20 @@ func Run(o Options) {
 	// The status bar is kept addressable so changing store can redraw it.
 	u.frame = container.NewVBox(u.statusBar())
 	u.win.SetContent(container.NewBorder(u.header(), u.frame, nil, nil, split))
+	// F5 and Ctrl+R reload, the two bindings people already try. The store is a
+	// plain directory that other things write to, so "show me what is actually
+	// there" needs to be one keystroke rather than a hunt for a button.
+	for _, sc := range []fyne.Shortcut{
+		&desktop.CustomShortcut{KeyName: fyne.KeyR, Modifier: fyne.KeyModifierControl},
+	} {
+		u.win.Canvas().AddShortcut(sc, func(fyne.Shortcut) { u.invalidate() })
+	}
+	u.win.Canvas().SetOnTypedKey(func(e *fyne.KeyEvent) {
+		if e.Name == fyne.KeyF5 {
+			u.invalidate()
+		}
+	})
+
 	u.win.Resize(fyne.NewSize(1180, 760))
 	u.nav.Select(sectionIndex(secs, o.Section))
 	u.win.SetMaster()
@@ -295,13 +316,19 @@ func (u *ui) statusBar() fyne.CanvasObject {
 		unlocked = container.NewHBox(dim("state"), statusText("not open yet", StatusInfo))
 	}
 
+	// One HBox, laid out left to right, with a spacer pushing the progress slot
+	// to the right-hand end. An earlier version gave the slot the border
+	// layout's centre region, which is sized from what is left over rather than
+	// from the slot's own width — so a long store path pushed the two into each
+	// other. Sequential layout cannot overlap.
 	bar := container.NewHBox(
 		dim("store"), store, sep(),
 		unlocked, sep(),
 		dim("agent"), agent,
+		layout.NewSpacer(),
+		u.busyStrip(),
 	)
-	return container.NewVBox(widget.NewSeparator(),
-		container.NewBorder(nil, nil, container.NewPadded(bar), nil, u.busyStrip()))
+	return container.NewVBox(widget.NewSeparator(), container.NewPadded(bar))
 }
 
 // routeStatus ranks a route: holding a local key or an agent session is the
@@ -323,18 +350,33 @@ func (u *ui) busyStrip() fyne.CanvasObject {
 
 	label := widget.NewLabel(u.busyWhat)
 	label.Truncation = fyne.TextTruncateEllipsis
+	label.Alignment = fyne.TextAlignTrailing
 
-	bar := widget.NewProgressBarInfinite()
-	sized := canvas.NewRectangle(nil)
-	sized.SetMinSize(fyne.NewSize(160, busyStripHeight))
+	// Both halves are pinned to a width. An HBox hands a truncating label its
+	// minimum size, which for a truncating label is nothing at all — the text
+	// collapsed to an ellipsis and the indicator said nothing about what was
+	// running. A progress bar left to itself has the opposite problem and
+	// expands into whatever room the text beside it leaves.
+	labelSlot := canvas.NewRectangle(nil)
+	labelSlot.SetMinSize(fyne.NewSize(busyLabelWidth, busyStripHeight))
 
-	return container.NewPadded(container.NewHBox(
-		label, container.New(layout.NewStackLayout(), sized, bar)))
+	barSlot := canvas.NewRectangle(nil)
+	barSlot.SetMinSize(fyne.NewSize(120, busyStripHeight))
+
+	return container.NewHBox(
+		container.New(layout.NewStackLayout(), labelSlot, label),
+		container.New(layout.NewStackLayout(), barSlot, widget.NewProgressBarInfinite()),
+	)
 }
 
 // busyStripHeight keeps the status bar the same height whether or not something
-// is running.
-const busyStripHeight = 18
+// is running. busyLabelWidth is how much room the description gets: enough for a
+// short phrase, and fixed so that starting an operation does not shuffle the
+// rest of the bar sideways.
+const (
+	busyStripHeight = 18
+	busyLabelWidth  = 260
+)
 
 func routeStatus(r core.Route) Status {
 	switch r {

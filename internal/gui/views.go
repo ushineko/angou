@@ -195,7 +195,8 @@ func (u *ui) buildStore() fyne.CanvasObject {
 	toolbar := container.NewHBox(
 		widget.NewButtonWithIcon("Encrypt file…", theme.ContentAddIcon(), func() { u.encryptFileDialog() }),
 		widget.NewButtonWithIcon("Scan directory…", theme.SearchIcon(), func() { u.nav.Select(1) }),
-		widget.NewButtonWithIcon("Reindex", theme.ViewRefreshIcon(), func() {
+		widget.NewButtonWithIcon("Refresh", theme.ViewRestoreIcon(), func() { u.invalidate() }),
+		widget.NewButtonWithIcon("Reindex", theme.MediaReplayIcon(), func() {
 			u.withSession("Reindex", func(s *core.Session) error {
 				r, err := s.Reindex()
 				if err != nil {
@@ -350,7 +351,7 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 		u.scanning = true
 		u.refresh()
 		go func() {
-			done := u.busy("Scanning " + root + " for credentials…")
+			done := u.busy("Scanning for credentials…")
 			defer func() {
 				done()
 				fyne.Do(func() {
@@ -455,7 +456,7 @@ func (u *ui) buildDoctor() fyne.CanvasObject {
 		go func() {
 			// This one reads every blob in the store, so it is slow in
 			// proportion to how much is in it.
-			done := u.busy("Checking whether " + fingerprint + " still opens anything…")
+			done := u.busy("Checking the superseded key…")
 			defer done()
 			opened, err := core.AssertOldKeyDead(dir, fingerprint, guiSecrets{u: u})
 			if err != nil {
@@ -570,7 +571,7 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 					"Forget", func() {
 						dir := u.storeDir()
 						go func() {
-							done := u.busy("Removing this machine's local key…")
+							done := u.busy("Removing the local key…")
 							defer done()
 							r, err := core.ForgetMachine(dir)
 							if err != nil {
@@ -739,7 +740,7 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 				u.pathDialog("Generate a release-signing key", "Generate",
 					container.NewVBox(path, warn), func() {
 						go func() {
-							done := u.busy("Generating a release-signing key…")
+							done := u.busy("Generating a signing key…")
 							defer done()
 							if err := core.GenerateSigningKey(path.Text); err != nil {
 								u.report("Generate signing key", err)
