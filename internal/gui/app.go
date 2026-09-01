@@ -51,9 +51,21 @@ type ui struct {
 	current int // the selected section, so an operation can rebuild it
 
 	// Loaded from the store on a goroutine, read and written on the UI thread.
-	entries    []StoreEntry
-	doctor     []DoctorGroup
-	releases   []ReleaseEntry
+	//
+	// Each has a companion flag rather than being tested for emptiness. A
+	// section asks for its data when it has none, and finishes by rebuilding
+	// itself — so inferring "not loaded yet" from an empty slice makes an empty
+	// store load forever, raising a fresh passphrase dialog every time round.
+	// "Loaded and empty" and "not loaded" are different states and need to be
+	// stored as such.
+	entries   []StoreEntry
+	entriesOK bool
+	doctor    []DoctorGroup
+	doctorOK  bool
+	releases  []ReleaseEntry
+	agentOK   bool
+	// candidates has no companion flag: the scan is always explicit, so an
+	// empty list means "not scanned yet" unambiguously.
 	candidates []ScanCandidate
 	scanRoot   string
 	flashes    *fyne.Container // transient result banners, above the content pane

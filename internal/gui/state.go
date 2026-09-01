@@ -91,6 +91,10 @@ func (u *ui) withSession(what string, fn func(*core.Session) error) {
 	go func() {
 		s, err := core.Open(dir, guiSecrets{u: u}, u.events())
 		if err != nil {
+			// Mark the load attempted. Without this a failed or cancelled open
+			// leaves the section asking again on the next rebuild, which turns
+			// one declined passphrase dialog into an endless run of them.
+			fyne.Do(func() { u.entriesOK, u.doctorOK, u.agentOK = true, true, true })
 			u.report(what, err)
 			return
 		}
@@ -132,7 +136,7 @@ func (u *ui) loadEntries() {
 		}
 		trusted := s.IndexTrusted()
 		fyne.Do(func() {
-			u.entries = entries
+			u.entries, u.entriesOK = entries, true
 			if !trusted {
 				u.flash("The index is missing or did not verify, so this listing is empty. "+
 					"Reindex rebuilds it from the blobs themselves.", StatusWarn)
@@ -169,7 +173,7 @@ func (u *ui) loadDoctor() {
 			groups = append(groups, g)
 		}
 		fyne.Do(func() {
-			u.doctor = groups
+			u.doctor, u.doctorOK = groups, true
 			u.refresh()
 		})
 	}()
@@ -184,10 +188,14 @@ func (u *ui) loadAgent() {
 	go func() {
 		st, err := core.AgentState(dir)
 		if err != nil {
-			return // not worth a banner: an unreachable agent is the normal case
+			// Not worth a banner: an unreachable agent is the normal case. Mark
+			// it loaded anyway, or the section asks again on every rebuild.
+			fyne.Do(func() { u.agentOK = true })
+			return
 		}
 		socket, _ := core.AgentSocket(dir)
 		fyne.Do(func() {
+			u.agentOK = true
 			u.session.Agent = AgentState{
 				Running:   st.Running && !st.Expired,
 				Remaining: st.Remaining,

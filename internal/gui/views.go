@@ -238,11 +238,14 @@ func (u *ui) buildStore() fyne.CanvasObject {
 	)
 
 	head := heading("Store", "What the store holds. Select a row to act on it.")
-	if len(entries) == 0 {
-		// Distinguish "not loaded yet" from "empty": an empty table with no
-		// explanation reads as a broken store.
+	switch {
+	case !u.entriesOK:
 		head = heading("Store", "Opening the store…")
 		u.loadEntries()
+	case len(entries) == 0:
+		// Loaded and genuinely empty. An empty table with no explanation reads
+		// as a broken store.
+		head = heading("Store", "This store holds nothing yet. Encrypt a file, or scan a directory.")
 	}
 	top := container.NewVBox(head, toolbar, container.NewHBox(rawToggle))
 	bottom := container.NewVBox(widget.NewSeparator(), container.NewHBox(rowActions[0], rowActions[1], rowActions[2], rowActions[3]))
@@ -400,7 +403,7 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 
 func (u *ui) buildDoctor() fyne.CanvasObject {
 	body := container.NewVBox()
-	if u.doctor == nil {
+	if !u.doctorOK {
 		u.loadDoctor()
 	}
 	for _, g := range u.doctor {
@@ -748,7 +751,7 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 // about operations rather than controls.
 func (u *ui) buildAgentBlock() fyne.CanvasObject {
 	a := u.session.Agent
-	if a.Socket == "" {
+	if !u.agentOK {
 		u.loadAgent()
 	}
 
