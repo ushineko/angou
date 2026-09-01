@@ -470,9 +470,36 @@ R6.2 Two binaries:
   CGO. Never required for bootstrap.
 
 R6.3 No subprocess invocation of `gpg`, `gpg-agent`, or `kwallet-query` in the normal
-path. OpenPGP via `github.com/ProtonMail/go-crypto/openpgp`; KWallet via
-`github.com/godbus/dbus/v5` against `org.kde.kwalletd6`. Both are CGO-free, so the CLI
-has no package prerequisites on a bare system.
+path. OpenPGP via `github.com/ProtonMail/go-crypto/openpgp`; the keyring via
+`github.com/godbus/dbus/v5`. Both are CGO-free, so the CLI has no package prerequisites
+on a bare system.
+
+R6.3.1 The keyring is reached through the **cross-desktop Secret Service API**
+(`org.freedesktop.secrets`) in preference to the KDE-specific one, with
+`org.kde.kwalletd6` retained as a fallback.
+
+An earlier revision named `org.kde.kwalletd6` alone. That made the keyring a KDE
+feature: on GNOME, XFCE, Sway, or anything else, `keyring.Available()` reported nothing
+and R2.5's fallback applied, so the user typed the recovery passphrase on every command
+— not because the machine had no secret store, but because angou could not speak to the
+one it had. Since a store is meant to work on every machine it is carried to, that made
+the portability of the blobs contingent on the desktop environment, which is not a
+trade the design intends.
+
+The Secret Service is implemented by gnome-keyring, by KDE through `ksecretd`, and by
+KeePassXC among others, so one backend covers the desktops the fallback previously
+excluded. It is also binary-safe by construction — a secret's value is a byte array
+rather than a string — which matters because the unlock passphrase is 32 bytes of
+CSPRNG output and is not valid UTF-8.
+
+The cost is a protocol with more moving parts: a session must be opened, and unlocking a
+locked collection returns a prompt object whose completion arrives as a signal. Awaiting
+that prompt is deliberately unbounded, because a person answering a dialog takes as long
+as they take; the availability probe that decides whether a keyring exists at all is
+bounded and cannot prompt.
+
+`ANGOU_KEYRING` pins a backend for a user who would rather choose than have angou
+choose.
 
 R6.4 CLI structure uses `spf13/cobra`, consistent with `aiq_agent_go`. Subcommands:
 `init`, `enc`, `dec`, `ls`, `get`, `rm`, `mv`, `reindex`, `rekey`, `passwd`, `prune`,

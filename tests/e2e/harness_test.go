@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ushineko/angou/internal/keyring"
 )
 
 // BinEnv names the environment variable holding the binary under test. `make
@@ -45,6 +47,9 @@ type env struct {
 	withKeyring bool
 	// runtimeDir stands in for XDG_RUNTIME_DIR and is kept short on purpose.
 	runtimeDir string
+	// keyringBackend pins which keyring API the child uses, so a test can
+	// exercise one rather than whichever the machine happens to prefer.
+	keyringBackend string
 	// cachedVersion is the version the binary under test reports.
 	cachedVersion string
 }
@@ -264,6 +269,9 @@ func (e *env) childEnv() []string {
 			e.t.Fatal("withKeyring was set but DBUS_SESSION_BUS_ADDRESS is not available")
 		}
 		out = append(out, "DBUS_SESSION_BUS_ADDRESS="+addr)
+		if e.keyringBackend != "" {
+			out = append(out, keyring.BackendEnv+"="+e.keyringBackend)
+		}
 	} else {
 		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+
 			filepath.Join(base, "no-such-bus"))
@@ -342,9 +350,18 @@ func (e *env) mustRun(args ...string) result {
 }
 
 // initStore creates the throwaway store and records its identity fingerprint.
+// Since init also sets the machine up, this leaves a bootstrapped machine
+// wherever a keyring is reachable.
 func (e *env) initStore() {
 	e.t.Helper()
 	e.fingerprint = extractFingerprint(e.t, e.mustRun("init").stdout)
+}
+
+// initStoreUnbootstrapped creates the store and leaves the machine alone, for
+// tests whose subject is `bootstrap` itself.
+func (e *env) initStoreUnbootstrapped() {
+	e.t.Helper()
+	e.fingerprint = extractFingerprint(e.t, e.mustRun("init", "--no-bootstrap").stdout)
 }
 
 // writePlaintext creates an input file in the work directory.

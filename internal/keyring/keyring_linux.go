@@ -36,13 +36,64 @@ type kwallet struct {
 	handle int32
 }
 
-// Open connects to the platform keyring, using the wallet named by WalletEnv
-// when it is set and the session's default wallet otherwise.
+// Open connects to the platform keyring.
+//
+// The cross-desktop Secret Service is tried first and the KWallet-specific API
+// second. The order matters for portability rather than preference: a store is
+// meant to work on every machine you carry it to, and speaking only
+// org.kde.kwalletd6 meant that anywhere but KDE there was no keyring at all —
+// not because the machine had none, but because angou could not talk to the one
+// it had. KWallet remains as a fallback for a KDE session where ksecretd is not
+// running.
+func Open() (Keyring, error) {
+	switch backend := os.Getenv(BackendEnv); backend {
+	case BackendSecretService:
+		return openSecretService()
+	case BackendKWallet:
+		return openKWallet()
+	case "", BackendAuto:
+	default:
+		return nil, fmt.Errorf("%w: %s=%q; use %q, %q, or %q",
+			ErrBadBackend, BackendEnv, backend, BackendAuto, BackendSecretService, BackendKWallet)
+	}
+
+	if secretServiceAvailable() {
+		ring, err := openSecretService()
+		if err == nil {
+			return ring, nil
+		}
+		// A present but unusable Secret Service is worth trying past rather than
+		// failing on: a KDE session can have both, and the point is to reach a
+		// keyring rather than to reach a particular one.
+		if kwalletAvailable() {
+			if ring, kwErr := openKWallet(); kwErr == nil {
+				return ring, nil
+			}
+		}
+		return nil, err
+	}
+	return openKWallet()
+}
+
+// Backend selection, for a user who would rather pin one than let angou choose.
+const (
+	// BackendEnv names the environment variable that selects a backend.
+	BackendEnv = "ANGOU_KEYRING"
+	// BackendAuto is the default: the Secret Service, then KWallet.
+	BackendAuto = "auto"
+	// BackendSecretService is the cross-desktop org.freedesktop.secrets API.
+	BackendSecretService = "secretservice"
+	// BackendKWallet is the KDE-specific org.kde.kwalletd6 API.
+	BackendKWallet = "kwallet"
+)
+
+// openKWallet connects through the KWallet-specific API, using the wallet named
+// by WalletEnv when it is set and the session's default wallet otherwise.
 //
 // Naming a wallet that does not yet exist makes kwalletd raise a creation dialog
 // on the user's desktop and wait for it, so WalletEnv is for selecting a wallet
 // the user already has, not for conjuring one.
-func Open() (Keyring, error) {
+func openKWallet() (Keyring, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, fmt.Errorf("%w: session bus: %w", ErrUnavailable, err)
@@ -71,14 +122,47 @@ func Open() (Keyring, error) {
 	return k, nil
 }
 
-// Available reports whether a keyring backend is present, without opening it.
+// Available reports whether any keyring backend is present, without opening one.
 //
 // This exists because Open is not safe to use as a probe: opening a wallet can
 // raise a dialog on the user's desktop and block until it is answered, so
 // calling it merely to find out whether a keyring exists can hang a command that
-// had no need of one. This asks the bus whether kwalletd is running and nothing
+// had no need of one. This asks the bus which services are running and nothing
 // more, under a short timeout, so it cannot prompt and cannot wait.
 func Available() bool {
+	switch backend := os.Getenv(BackendEnv); backend {
+	case BackendSecretService:
+		return secretServiceAvailable()
+	case BackendKWallet:
+		return kwalletAvailable()
+	case "", BackendAuto:
+		return secretServiceAvailable() || kwalletAvailable()
+	default:
+		// Report available so the caller proceeds to Open and gets the real
+		// complaint. Answering "no keyring" to a misspelt backend would turn a
+		// typo into a silent, permanent fallback.
+		return true
+	}
+}
+
+// ValidateBackend checks the backend selector without connecting to anything.
+//
+// It is called once at start-up so a misspelt name is reported before a command
+// does any work. Discovering it partway through — after a store has been created,
+// say — leaves the user in a state they then have to reason about, for what is
+// only a typo.
+func ValidateBackend() error {
+	switch backend := os.Getenv(BackendEnv); backend {
+	case "", BackendAuto, BackendSecretService, BackendKWallet:
+		return nil
+	default:
+		return fmt.Errorf("%w: %s=%q; use %q, %q, or %q",
+			ErrBadBackend, BackendEnv, backend, BackendAuto, BackendSecretService, BackendKWallet)
+	}
+}
+
+// kwalletAvailable reports whether kwalletd is running.
+func kwalletAvailable() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

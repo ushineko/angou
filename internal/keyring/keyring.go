@@ -17,6 +17,11 @@ var (
 	// machine — headless, non-KDE, or a platform without a backend yet. The
 	// caller falls back to the recovery passphrase (R2.5).
 	ErrUnavailable = errors.New("no keyring backend is available")
+	// ErrBadBackend reports a keyring backend selected by name that does not
+	// exist. It is deliberately not ErrUnavailable: a user who pinned a backend
+	// and mistyped it must be told, rather than have angou quietly decide the
+	// machine has no keyring and fall back to asking for a passphrase forever.
+	ErrBadBackend = errors.New("unknown keyring backend")
 	// ErrNoEntry reports that the backend is reachable but holds no entry.
 	// Distinct from ErrUnavailable: this is the "key present, wallet entry
 	// absent" state R2.4 requires the tool to detect and explain.

@@ -116,7 +116,9 @@ func setUpMachine(dir, fingerprint string, exported []byte, s *store.Store) (boo
 	}
 	ring, err := keyring.Open()
 	if err != nil {
-		if errors.Is(err, keyring.ErrUnavailable) {
+		// A misspelt backend is the user's mistake to see, not something to
+		// absorb into the no-keyring path.
+		if errors.Is(err, keyring.ErrUnavailable) && !errors.Is(err, keyring.ErrBadBackend) {
 			return noKeyring(s, err)
 		}
 		return false, err

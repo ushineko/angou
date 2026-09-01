@@ -38,12 +38,17 @@ import (
 // The entry name carries the store's identity fingerprint, which is freshly
 // generated per run, so a test can never collide with — or overwrite — an entry
 // belonging to the developer's own store (spec 001 R8.5).
-func keyringEnv(t *testing.T) *env {
+func keyringEnv(t *testing.T) *env { return keyringEnvFor(t, "") }
+
+// keyringEnvFor builds a keyring environment pinned to one backend, or to
+// whichever angou would choose when backend is empty.
+func keyringEnvFor(t *testing.T, backend string) *env {
 	t.Helper()
 	requireKeyring(t)
 
 	e := newEnv(t)
 	e.withKeyring = true
+	e.keyringBackend = backend
 
 	// These tests use the session's own wallet, with an entry named for this
 	// run, and remove that entry afterwards.
@@ -113,7 +118,7 @@ func requireKeyring(t *testing.T) {
 // keyring: after bootstrap, the machine opens the store on its own.
 func TestBootstrapRemovesTheNeedForTheRecoveryPassphrase(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStoreUnbootstrapped()
 	e.mustRun("bootstrap")
 
 	// Every command below runs with no passphrase source at all. If any of them
@@ -129,7 +134,7 @@ func TestBootstrapRemovesTheNeedForTheRecoveryPassphrase(t *testing.T) {
 // quietly replace working local state.
 func TestBootstrapIsIdempotentlyGuarded(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStoreUnbootstrapped()
 	e.mustRun("bootstrap")
 
 	r := e.run("bootstrap")
@@ -144,7 +149,7 @@ func TestBootstrapIsIdempotentlyGuarded(t *testing.T) {
 // passphrase is drawn per machine, not derived from the store or the host.
 func TestTwoBootstrapsProduceDifferentUnlockPassphrases(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStoreUnbootstrapped()
 
 	e.mustRun("bootstrap")
 	first := readLocalKeyFile(t, e)
@@ -160,7 +165,7 @@ func TestTwoBootstrapsProduceDifferentUnlockPassphrases(t *testing.T) {
 // unlock passphrase appears in no output and no file but the keyring entry.
 func TestUnlockPassphraseIsNeverDisclosed(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStoreUnbootstrapped()
 	r := e.mustRun("bootstrap")
 
 	fingerprint, err := localkey.Fingerprint(e.store)
@@ -194,7 +199,7 @@ func TestUnlockPassphraseIsNeverDisclosed(t *testing.T) {
 // tool must say that rather than prompt for something the user was never told.
 func TestMissingKeyringEntryIsExplained(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStoreUnbootstrapped()
 	e.mustRun("bootstrap")
 
 	fingerprint, err := localkey.Fingerprint(e.store)
@@ -220,7 +225,7 @@ func TestMissingKeyringEntryIsExplained(t *testing.T) {
 // operation, which is what a user runs before handing a machine on.
 func TestForgetReturnsTheMachineToTheRecoveryPassphrase(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStoreUnbootstrapped()
 	e.mustRun("bootstrap")
 	require.True(t, localkey.Exists(e.store))
 
@@ -273,9 +278,8 @@ func filesUnder(t *testing.T, root string) []string {
 // laptop needs to know it did not touch the shared store.
 func TestRekeyLocalChangesNothingInTheStore(t *testing.T) {
 	e := keyringEnv(t)
-	e.initStore()
+	e.initStore() // init sets the machine up, so no separate bootstrap is needed
 	want := seedStore(t, e, 3)
-	e.mustRun("bootstrap")
 
 	before := blobDigests(t, e)
 	beforeLocal := readLocalKeyFile(t, e)
@@ -315,4 +319,61 @@ func TestInitSetsTheMachineUp(t *testing.T) {
 
 	// And a second bootstrap is correctly refused as redundant.
 	require.NotZero(t, e.run("bootstrap").code)
+}
+
+// TestEveryKeyringBackend runs the cycle that matters against each backend angou
+// can speak, rather than against whichever one this machine happens to prefer.
+//
+// The Secret Service is the cross-desktop standard and the reason it is
+// preferred: speaking only the KDE API meant that on GNOME, XFCE or Sway there
+// was no keyring at all — not because the machine had none, but because angou
+// could not talk to the one it had.
+func TestEveryKeyringBackend(t *testing.T) {
+	for _, backend := range []string{keyring.BackendSecretService, keyring.BackendKWallet} {
+		t.Run(backend, func(t *testing.T) {
+			if !backendAvailable(t, backend) {
+				t.Skipf("%s is not running on this machine", backend)
+			}
+			e := keyringEnvFor(t, backend)
+			e.initStore()
+
+			require.True(t, localkey.Exists(e.store), "init must set the machine up")
+
+			src := e.writePlaintext("b.env", []byte("FIELD=value\n"), 0o600)
+			e.mustRunNoPassphrase("enc", "--as", "b.env", src)
+			require.Equal(t, "FIELD=value\n", e.mustRunNoPassphrase("dec", "b.env").stdout)
+			require.Contains(t, e.mustRunNoPassphrase("doctor").stdout, "entry:")
+
+			// And the entry goes away again, in the backend that wrote it.
+			e.mustRunNoPassphrase("bootstrap", "--forget")
+			require.False(t, localkey.Exists(e.store))
+			require.NotZero(t, e.runNoPassphrase("ls").code,
+				"without the entry the store should need the recovery passphrase again")
+		})
+	}
+}
+
+// TestUnknownKeyringBackendIsRefused checks the selector rejects a typo rather
+// than silently falling back, which would leave the user believing they had
+// pinned something they had not.
+func TestUnknownKeyringBackendIsRefused(t *testing.T) {
+	e := keyringEnvFor(t, "nonsense")
+	r := e.run("init")
+	require.NotZero(t, r.code)
+	require.Contains(t, r.stderr, "unknown keyring backend")
+	require.Contains(t, r.stderr, "secretservice", "the refusal should list what is valid")
+
+	// And it is caught before the command does anything. Reporting a typo after
+	// a store has been created leaves the user with state to reason about.
+	// The directory itself is made by the harness, so the store blob is what
+	// says whether angou did anything.
+	require.NoFileExists(t, e.storePath("store.angou"),
+		"no store may be created when the backend name is wrong")
+}
+
+// backendAvailable reports whether a given backend is running here.
+func backendAvailable(t *testing.T, backend string) bool {
+	t.Helper()
+	t.Setenv(keyring.BackendEnv, backend)
+	return keyring.Available()
 }

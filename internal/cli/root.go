@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/store"
 	"github.com/ushineko/angou/lib/container"
 )
@@ -39,6 +40,11 @@ func Root() *cobra.Command {
 		Version: fmt.Sprintf("%s (%s)", container.Version, container.Commit),
 		// Errors are reported once, by main, with the program name. Leaving
 		// cobra's own reporting on prints every failure twice.
+		// Checked once, before any command does work, so a misspelt keyring
+		// backend is reported rather than discovered halfway through.
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return keyring.ValidateBackend()
+		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

@@ -7,5 +7,8 @@ package keyring
 // recovery passphrase on that machine (spec 001 R2.5).
 func Open() (Keyring, error) { return nil, ErrUnavailable }
 
+// ValidateBackend accepts anything: there is no backend to select between.
+func ValidateBackend() error { return nil }
+
 // Available reports no backend on macOS.
 func Available() bool { return false }

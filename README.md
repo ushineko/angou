@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.1.1
+**Version**: 0.1.2
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -109,7 +109,8 @@ password manager or on paper. You type it when you set up a new machine, and alm
 never otherwise.
 
 **The unlock password is not yours.** Each machine generates its own — 32 random bytes,
-never shown to you, never written down, kept in your KDE wallet and nowhere else. You
+never shown to you, never written down, kept in your desktop's keyring and nowhere
+else. You
 will never type it and there is nothing to remember.
 
 The result is that a machine holds no secret worth stealing on its own. Wipe your
@@ -118,8 +119,12 @@ is rebuilt from the store rather than recovered. Nothing derives it from your ho
 or hardware either, so imaging the disk and reading this source gets an attacker
 nowhere.
 
-On a machine with no KDE wallet — a server, or a Mac for now — nothing is generated and
-the key stays under your recovery password instead.
+angou uses the freedesktop Secret Service, which GNOME, KDE, XFCE and others all
+implement, so this works on most desktops rather than only on KDE. `ANGOU_KEYRING=kwallet`
+pins the older KDE-specific API if you would rather use it.
+
+On a machine with no keyring at all — a server, or a Mac for now — nothing is generated
+and the key stays under your recovery password instead.
 
 ## Bootstrapping a new machine
 
@@ -300,7 +305,7 @@ angou bootstrap
 ```
 
 That takes the key out of the store, wraps it under a fresh 32-byte machine password,
-and puts that password in your KDE wallet. Afterwards this machine opens the store on
+and puts that password in your desktop's keyring. Afterwards this machine opens the store on
 its own, in about five milliseconds instead of a quarter of a second. You are never
 shown the machine password and never need it.
 
@@ -515,7 +520,7 @@ angou/
 ├── internal/pgpcrypto/     signing, encryption, and verification
 ├── internal/keybundle/     the key bundle and its Argon2id protection
 ├── internal/passphrase/    generating and screening recovery passphrases
-├── internal/keyring/       the KDE wallet, split by platform
+├── internal/keyring/       the desktop keyring, split by platform and API
 ├── internal/localkey/      this machine's copy of the key
 ├── internal/release/       the bootstrap namespace and version ordering
 ├── internal/agent/         the session cache
@@ -535,15 +540,15 @@ angou/
 ```bash
 make test           # unit tests, fast
 make e2e            # builds the real binary, runs it against throwaway stores
-make e2e-keyring    # the KWallet tests; needs you at the desktop, see below
+make e2e-keyring    # the keyring tests; needs you at the desktop, see below
 make e2e-container  # bootstrap onto a machine with nothing installed
 make lint           # pinned golangci-lint, checksum-verified when installed
 make shellcheck     # the plaintext bootstrap installer
 ```
 
-`make e2e` never touches your wallet. The tests that do are behind their own target,
-because they operate the wallet you keep real secrets in and KWallet offers no way to
-make a throwaway one — opening a wallet that does not exist raises a dialog and waits
+`make e2e` never touches your keyring. The tests that do are behind their own target,
+because they operate the keyring you keep real secrets in and KWallet offers no way to
+make a throwaway wallet — opening a wallet that does not exist raises a dialog and waits
 for you. Those tests write an entry named for the run and remove it afterwards, and
 they need a human at the desktop to answer any access prompt.
 
@@ -585,6 +590,29 @@ machine" cannot honestly be tested on this one.
   as a backstop, not as a plan.
 
 ## Changelog
+
+### 0.1.2
+
+- **The keyring is reached through the freedesktop Secret Service**
+  (`org.freedesktop.secrets`) in preference to the KDE-specific API, with KWallet kept
+  as a fallback. Speaking only `org.kde.kwalletd6` made the keyring a KDE feature: on
+  GNOME, XFCE, Sway or anything else, angou reported no keyring and fell back to asking
+  for the recovery passphrase on every command — not because the machine had no secret
+  store, but because angou could not talk to the one it had. Since a store is meant to
+  work on every machine you carry it to, that made the portability of your files
+  contingent on your desktop environment.
+
+  The Secret Service is implemented by gnome-keyring, by KDE through `ksecretd`, and by
+  KeePassXC among others. It is also binary-safe by construction, which the older API
+  was not: a secret's value is a byte array rather than a string, and the unlock
+  passphrase is 32 bytes of random data that is not valid text.
+
+  `ANGOU_KEYRING=kwallet` pins the older API; `secretservice` pins the new one. A name
+  that is neither is refused at start-up, before the command does anything, rather than
+  quietly becoming "this machine has no keyring".
+
+- Both backends are exercised by the same test, so neither is verified only by
+  inference from the other.
 
 ### 0.1.1
 
