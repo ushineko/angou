@@ -27,6 +27,7 @@ stays where you put it.*
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage (CLI)](#usage-cli)
+  - [Not built yet](#not-built-yet)
 - [Usage (GUI)](#usage-gui)
 - [Project layout](#project-layout)
 - [Testing](#testing)
@@ -156,30 +157,63 @@ recognize a `.angou` blob. Remove it all with `./uninstall.sh`.
 
 ## Usage (CLI)
 
+Every command needs to know which store to work on, and needs the recovery
+passphrase to open it. Name the store with `--store`, or set `ANGOU_STORE` once and
+leave it out.
+
 ```bash
-angou init ~/Dropbox/angou        # create a store and its keypair
+export ANGOU_STORE=~/Dropbox/angou
+
+angou init                        # create the store and its keypair
+angou init --generate             # ... and let angou choose the passphrase
+
 angou enc .secrets.env            # encrypt into the store
 angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519
-angou dec work/ssh/id_ed25519     # decrypt back out
-angou get .secrets.env            # write the plaintext to stdout
+angou dec work/ssh/id_ed25519     # plaintext to stdout
+angou dec .secrets.env -o /tmp/x  # ... or to one named file
+angou get .secrets.env --dest ~/restored   # rebuild the file under a root
 
 angou ls                          # what is in the store
-angou ls work/                    # one part of it
-angou mv old/path new/path        # rename without re-encrypting
+angou ls --long                   # with sizes, modes, and times
+angou mv old/path new/path
 angou rm work/ssh/id_ed25519
-
 angou reindex                     # rebuild the listing from the blobs
-angou verify-bootstrap            # has the plaintext installer been altered?
-
-angou rekey --local               # new machine password; changes nothing else
-angou rekey --identity            # NEW KEYPAIR, re-encrypts everything
-
-angou release --dist dist/        # put newly built binaries into the store
-angou agent                       # session cache; started on demand
 ```
 
-`enc` leaves your original file alone. `--shred` overwrites it afterwards, but see
-[Safety](#safety) before you rely on that word.
+`dec` writes one file's plaintext where you point it. `get` rebuilds the file under a
+directory you name, restoring its permissions and modification time. `get` needs
+`--dest` and has no default, because the stored path decides where the write lands and
+anyone who can write to your store chooses that path; confining it to a root you named
+is what stops a stored path from writing somewhere else.
+
+`enc` leaves your original file alone.
+
+### Not built yet
+
+The commands below are specified and documented but not implemented. They arrive with
+the keyring, bootstrap, and rotation passes:
+
+```
+angou bootstrap                   # set up a new machine from the store
+angou verify-bootstrap            # has the plaintext installer been altered?
+angou rekey --local               # new machine password; changes nothing else
+angou rekey --identity            # NEW KEYPAIR, re-encrypts everything
+angou passwd                      # change the recovery passphrase
+angou prune --bootstrap --keep 3
+angou doctor --old-key <fingerprint>
+angou release --dist dist/
+angou agent                       # session cache
+angou clone --no-binaries
+```
+
+Until the keyring pass lands there is no machine password and no session cache, so
+every command asks for the recovery passphrase and spends about a quarter of a second
+deriving a key from it. That is the headless fallback the design already allows for,
+not a shortcut: nothing weaker guards the store in the meantime.
+
+The derivation needs about 96 MB of memory. angou checks for it, and for any cgroup
+limit on the process, before starting — a container too small to finish the derivation
+is told so rather than being killed part-way through.
 
 ## Usage (GUI)
 
@@ -193,12 +227,17 @@ the CLI and is never needed to set a machine up.
 ```
 angou/
 ├── cmd/angou/              the command line
-├── cmd/angou-gui/          the desktop browser
+├── cmd/angou-gui/          the desktop browser (not built yet)
 ├── lib/container/          the blob format — readable by other tools
-├── internal/store/         blob naming, the index, rebuilding it
+├── internal/cli/           the command tree
+├── internal/store/         blob naming, the index, rebuilding it, extraction
 ├── internal/envelope/      the metadata sealed inside each blob
-├── internal/keyring/       keys, and the KDE wallet
-├── internal/agent/         the session cache
+├── internal/pgpcrypto/     signing, encryption, and verification
+├── internal/keybundle/     the key bundle and its Argon2id protection
+├── internal/passphrase/    generating and screening recovery passphrases
+├── internal/prompt/        reading a passphrase without echoing or logging it
+├── internal/keyring/       keys, and the KDE wallet (not built yet)
+├── internal/agent/         the session cache (not built yet)
 ├── packaging/              desktop file-type rules, icon, magic
 ├── config/                 pinned linter configuration
 ├── specs/                  design specs
@@ -259,8 +298,27 @@ machine" cannot honestly be tested on this one.
 
 ### 0.1.0-dev
 
-- Design complete: container format, key model, store layout, rotation, and bootstrap
-  (spec 001). No implementation yet.
+- First implementation pass, command line only: the container format, the metadata
+  envelope, keyed blob naming, the store index, and `init`, `enc`, `dec`, `get`, `ls`,
+  `mv`, `rm`, and `reindex`. Payloads are signed as well as encrypted and the signature
+  is verified before any plaintext is returned. The key bundle is held under the
+  recovery passphrase with Argon2id at m=1 GiB, t=4, p=4, and a bundle recording weaker
+  parameters is refused.
+  Extraction is confined to a directory the caller names, using a held directory
+  descriptor rather than a path check, so a symlink planted at any depth cannot
+  redirect a write out of it.
+- The key bundle is protected with Argon2id at m=64 MiB, t=24, p=4 — RFC 9106's
+  configuration for memory-constrained environments, with the pass count raised to keep
+  the cost comparable to a gibibyte-scale one. The memory figure is chosen so a store
+  opens on every machine it syncs to, including small containers, rather than for
+  maximum per-guess cost; the passphrase entropy floor is what makes an exhaustive
+  search infeasible.
+- End-to-end test practice established: 28 tests that build the real binary and drive
+  it as a subprocess against throwaway stores, with a per-run passphrase and a
+  redirected `HOME` the suite refuses to run without.
+- Not yet built: the KDE wallet and the machine password, `bootstrap.sh` and the
+  release-signing chain, rotation, the session cache, and the desktop browser. Design
+  for all of them is complete in spec 001.
 
 ## License
 

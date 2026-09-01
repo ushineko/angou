@@ -24,6 +24,12 @@ linters:
       excludes:
         - G304
     wrapcheck:
+      # Errors crossing between this module's own packages carry their context
+      # already; wrapping them again produces messages like "open store: open
+      # store: ...". wrapcheck stays on for genuinely external errors, which is
+      # where the missing context actually hurts.
+      ignore-package-globs:
+        - github.com/ushineko/angou/*
       ignore-sigs:
         - .Errorf(
         - errors.New(

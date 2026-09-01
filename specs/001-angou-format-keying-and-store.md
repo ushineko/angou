@@ -2,6 +2,18 @@
 
 ## Status: INCOMPLETE
 
+Implementation is proceeding in passes. The first pass covers the container format,
+the metadata envelope, the recovery-passphrase half of the key model, store addressing,
+the index, and the `init`, `enc`, `dec`, `get`, `ls`, `mv`, `rm`, and `reindex`
+commands, together with the end-to-end test practice of R8. Twenty-five acceptance
+criteria are met and checked below.
+
+The unchecked criteria are unstarted rather than failing. They belong to the keyring
+and unlock-passphrase model (R2.2 second half, R2.4, R2.5), the bootstrap and
+release-signing chain (R5), rotation (R4), the session cache (R6.5), and the two
+integration criteria that depend on them — `gpg` reading a blob body, which needs a key
+export path, and `file(1)`/`xdg-mime` detection, which needs the packaging installed.
+
 ---
 
 ## Executive Summary
@@ -22,9 +34,7 @@ tool must also bootstrap onto an unconfigured machine — initially CachyOS/Arch
 macOS as a later target — recovering both the key material and a working binary from
 that store alone.
 
-The project is named `angou` (暗号 — cipher / encryption; 暗号化 *angouka* is
-"encryption"). The romanization follows wapuro convention, matching the kana あんごう
-directly rather than relying on a macron. The Go module path is
+The project is named `angou` (暗号 — cipher / encryption). The Go module path is
 `github.com/ushineko/angou`; the container magic string is `ANGOU1` and the file
 extension is `.angou`.
 
@@ -103,7 +113,7 @@ protection is therefore pinned explicitly and not left to OpenPGP defaults:
 
 - The recovery passphrase does not encrypt the bundle directly. It derives a wrapping
   key via **Argon2id** with parameters recorded in the clear beside the ciphertext
-  (initially m=1 GiB, t=4, p=4, 16-byte salt), and that key wraps a random 32-byte
+  (m=64 MiB, t=24, p=4, 16-byte salt), and that key wraps a random 32-byte
   bootstrap key which does the actual encryption.
 - Cipher and AEAD are pinned (AES-256, OCB where available, otherwise AES-256-CFB with
   MDC) rather than inherited from the implementation's defaults.
@@ -111,7 +121,43 @@ protection is therefore pinned explicitly and not left to OpenPGP defaults:
   the pinned floor is refused, so an attacker cannot downgrade the KDF by editing the
   header.
 - `angou init` MUST refuse a low-entropy recovery passphrase and offers to generate a
-  diceware phrase of at least 77 bits. The generated phrase is displayed exactly once.
+  diceware phrase of at least 77 bits. The generated phrase is displayed exactly once,
+  and only after the store has been created: a phrase shown before the store is
+  committed tells the user to write down something that opens nothing.
+- Words in a generated phrase are drawn without replacement, and the entropy screen
+  credits a typed phrase for its **distinct** words only. Crediting repetition would
+  admit a phrase of one word repeated nine times.
+
+R2.2.2 The memory parameter is set for **portability**, not for maximum cost, and the
+reasoning is recorded because the number looks low beside RFC 9106's first
+recommendation. These are RFC 9106's second recommended configuration — the one it
+gives for memory-constrained environments — with the pass count raised so the
+wall-clock cost is comparable to a gibibyte-scale configuration: measured at 0.24 s
+and 77 MiB peak RSS, against 1.02 s and 1.03 GiB for m=1 GiB, t=4, p=4.
+
+The driver is that a store must open on every machine it syncs to (R2.1, R3.1). A
+gibibyte floor does not make such a store safer on a small VPS or a limited container;
+it makes it unopenable there, which is a worse outcome than a lower per-guess cost.
+
+The derivation is also not the primary defence against offline cracking, and pinning it
+as though it were would misstate the design. Entropy is: at the 77-bit floor R2.2.1
+enforces, an exhaustive search is infeasible even against a KDF-free hash. The
+derivation earns its keep only where the entropy screen has over-credited a
+human-chosen phrase, and the *memory* parameter specifically is what bounds an
+attacker's parallelism — each concurrent guess needs its own allocation, which is why
+Argon2id is used rather than an iteration-only construction.
+
+R2.2.3 Because a failed allocation in Go is a runtime abort rather than a returnable
+error, the memory required by a bundle's recorded parameters MUST be checked before the
+derivation is attempted, against both the host's available memory and any cgroup limit
+on the process. Without the check a constrained machine yields exit 137 and no output.
+This is a pre-flight check specifically because there is no error to handle.
+
+Disk space needs no equivalent check: every store write goes to a temporary file that
+is written, fsynced, and renamed into place, so an out-of-space condition surfaces as an
+error, leaves no debris, and never damages the previous version. A free-space pre-check
+would be a time-of-check-to-time-of-use race and would not remove the need to handle the
+error anyway.
 
 R2.3 The unlock passphrase MUST NOT be derived from the hostname, `/etc/machine-id`,
 or any other host-identifying value. Derivation from host data would make the local
@@ -477,11 +523,11 @@ the Phase 3 validation gate.
 
 ### Format
 
-- [ ] A blob written by `enc` and read by `dec` round-trips byte-identical content,
+- [x] A blob written by `enc` and read by `dec` round-trips byte-identical content,
       mode, and mtime for both a text and a binary input.
-- [ ] The plaintext header of a produced blob contains no original filename and no
+- [x] The plaintext header of a produced blob contains no original filename and no
       plaintext hash, verified by asserting against the raw bytes.
-- [ ] `--binary` and armored modes both round-trip, and a reader honours the header's
+- [x] `--binary` and armored modes both round-trip, and a reader honours the header's
       declared encoding rather than sniffing.
 - [ ] **Integration:** the system `gpg` binary decrypts an armored blob body produced
       by `angou` and yields a parseable envelope (R1.5). This test invokes real
@@ -491,26 +537,26 @@ the Phase 3 validation gate.
 
 ### Authenticity and integrity
 
-- [ ] A blob whose signature does not verify is refused, and the plaintext is not
+- [x] A blob whose signature does not verify is refused, and the plaintext is not
       written to disk or stdout (R1.7).
-- [ ] A blob re-encrypted to the store's public key by a party without the signing key
+- [x] A blob re-encrypted to the store's public key by a party without the signing key
       is refused on read.
-- [ ] A blob renamed to another blob's `blob_id` is refused rather than returned under
+- [x] A blob renamed to another blob's `blob_id` is refused rather than returned under
       the wrong name (R1.8).
-- [ ] `reindex` refuses an envelope whose path does not match the blob's filename.
-- [ ] An `index.angou` that decrypts but does not verify is refused, and the tool falls
+- [x] `reindex` refuses an envelope whose path does not match the blob's filename.
+- [x] An `index.angou` that decrypts but does not verify is refused, and the tool falls
       back to `reindex` rather than trusting it.
 - [ ] An envelope path of `../../.ssh/authorized_keys`, an absolute path, or a path
       with a NUL byte is refused on both write and extraction (R3.4.1).
-- [ ] Extraction refuses to follow a symlink out of the destination root (R3.4.2).
+- [x] Extraction refuses to follow a symlink out of the destination root (R3.4.2).
 
 ### Key model
 
-- [ ] The key bundle's Argon2id parameters are recorded beside the ciphertext, and a
+- [x] The key bundle's Argon2id parameters are recorded beside the ciphertext, and a
       bundle presenting parameters below the pinned floor is refused (R2.2.1).
-- [ ] `init` refuses a low-entropy recovery passphrase and its generated phrase carries
+- [x] `init` refuses a low-entropy recovery passphrase and its generated phrase carries
       at least 77 bits of entropy.
-- [ ] The plaintext header of a blob contains no key fingerprint, and decryption
+- [x] The plaintext header of a blob contains no key fingerprint, and decryption
       succeeds without one (R1.3).
 - [ ] Bootstrap generates an unlock passphrase from `crypto/rand` that appears in no
       log, no terminal output, and no file other than the wallet entry.
@@ -524,14 +570,14 @@ the Phase 3 validation gate.
 
 ### Store
 
-- [ ] The same logical path encrypted twice resolves to the same `blob_id` and updates
+- [x] The same logical path encrypted twice resolves to the same `blob_id` and updates
       in place, leaving no orphan blob.
-- [ ] Two stores initialized with different `K_name` produce different `blob_id`
+- [x] Two stores initialized with different `K_name` produce different `blob_id`
       values for the same path.
-- [ ] `get` retrieves by logical path with `index.angou` deleted.
-- [ ] `reindex` reconstructs an index equal to the original after the index is deleted,
+- [x] `get` retrieves by logical path with `index.angou` deleted.
+- [x] `reindex` reconstructs an index equal to the original after the index is deleted,
       and after it is replaced with a Dropbox-style conflicted copy.
-- [ ] Identically-named files under different store-relative paths coexist.
+- [x] Identically-named files under different store-relative paths coexist.
 
 ### Rotation
 
@@ -585,25 +631,25 @@ the Phase 3 validation gate.
 
 ### Build
 
-- [ ] `make lint` passes at the pinned `golangci-lint` version.
-- [ ] `make test` passes with `-race`.
+- [x] `make lint` passes at the pinned `golangci-lint` version.
+- [x] `make test` passes with `-race`.
 - [ ] `make build-static` produces a binary that `ldd` reports as not dynamically
       linked, and which runs in a `scratch`-based container.
-- [ ] `make help` lists every target.
+- [x] `make help` lists every target.
 
 ### Testing discipline
 
-- [ ] The e2e suite runs against a binary it built itself, not against internal
+- [x] The e2e suite runs against a binary it built itself, not against internal
       packages, and fails if that binary is absent.
-- [ ] The suite fails with a clear message when `HOME` points at the real home
+- [x] The suite fails with a clear message when `HOME` points at the real home
       directory (R8.4).
-- [ ] Two consecutive e2e runs use different recovery passphrases.
-- [ ] After a full run, no file under the real `~/.local/share/angou/` and no KWallet
+- [x] Two consecutive e2e runs use different recovery passphrases.
+- [x] After a full run, no file under the real `~/.local/share/angou/` and no KWallet
       entry outside the test-named one has been created or modified.
 
 ### Security
 
-- [ ] A repository scan finds no key material, passphrase, or store content.
+- [x] A repository scan finds no key material, passphrase, or store content.
 - [ ] No passphrase or plaintext appears in any log path at debug verbosity.
 
 ---
