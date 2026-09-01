@@ -33,7 +33,8 @@ func Init(dir string, recovery []byte, ev Events) (*Session, error) {
 		return nil, err
 	}
 	ev.logf("initialized store %s", dir)
-	return &Session{st: s, ev: ev}, nil
+	// Init opened the store with the recovery passphrase it was just given.
+	return &Session{st: s, ev: ev, route: RouteRecovery}, nil
 }
 
 // SetUpResult reports how far bootstrapping got.
@@ -185,7 +186,7 @@ func OpenWithExportedIdentity(dir string, exported []byte, ev Events) (*Session,
 	if err != nil {
 		return nil, err
 	}
-	return &Session{st: s, ev: ev}, nil
+	return &Session{st: s, ev: ev, route: RouteRecovery}, nil
 }
 
 // HasLocalKey reports whether this machine holds a local key for the store.

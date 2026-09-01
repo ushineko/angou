@@ -20,6 +20,41 @@ import (
 // BootstrapScriptName is the plaintext entrypoint kept beside the store.
 const BootstrapScriptName = "bootstrap.sh"
 
+// Route names how a store was opened.
+//
+// A front end that does not report this leaves the user unable to tell a machine
+// that has been set up from one asking for the passphrase every time, which is
+// the single most useful thing to know about a machine's relationship to a
+// store. The CLI reports it in its --verbose stream; the GUI shows it in the
+// status bar.
+type Route int
+
+const (
+	// RouteNone means no store is open.
+	RouteNone Route = iota
+	// RouteAgent means a running agent served the key.
+	RouteAgent
+	// RouteLocalKey means the machine-local key was unwrapped with the keyring.
+	RouteLocalKey
+	// RouteRecovery means the store's own key bundle was opened with the
+	// recovery passphrase, which is the route for a machine that has not been
+	// set up.
+	RouteRecovery
+)
+
+// String names the route in the words the interface uses.
+func (r Route) String() string {
+	switch r {
+	case RouteAgent:
+		return "an agent session"
+	case RouteLocalKey:
+		return "this machine's key"
+	case RouteRecovery:
+		return "the recovery passphrase"
+	}
+	return "not open"
+}
+
 // Open unlocks the store by whichever route this machine supports.
 //
 // The fast route is the machine-local copy of the identity, unwrapped with the
@@ -28,7 +63,7 @@ const BootstrapScriptName = "bootstrap.sh"
 // has been bootstrapped and the only route where no keyring backend exists
 // (spec 001 R2.5).
 func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
-	s, usedRecovery, err := open(dir, secrets, ev)
+	s, route, err := open(dir, secrets, ev)
 	if err != nil {
 		return nil, err
 	}
@@ -40,12 +75,12 @@ func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
 		return nil, err
 	}
 	finish(s, ev)
-	if usedRecovery {
+	if route == RouteRecovery {
 		// After finish, not before: the order these lines appear in is part of
 		// the output the e2e suite and the user's eye both depend on.
 		suggestBootstrap(dir, ev)
 	}
-	return &Session{st: s, ev: ev}, nil
+	return &Session{st: s, ev: ev, route: route}, nil
 }
 
 // OpenDiagnostic does everything Open does except enforce the version floor.
@@ -54,28 +89,27 @@ func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
 // everything else is refusing. A diagnostic that refuses for the very reason
 // being diagnosed tells the user nothing; doctor reports the floor instead.
 func OpenDiagnostic(dir string, secrets Secrets, ev Events) (*Session, error) {
-	s, usedRecovery, err := open(dir, secrets, ev)
+	s, route, err := open(dir, secrets, ev)
 	if err != nil {
 		return nil, err
 	}
 	finish(s, ev)
-	if usedRecovery {
+	if route == RouteRecovery {
 		suggestBootstrap(dir, ev)
 	}
-	return &Session{st: s, ev: ev}, nil
+	return &Session{st: s, ev: ev, route: route}, nil
 }
 
-// open takes the first route this machine supports. The second return reports
-// whether the recovery passphrase was used, which decides whether the caller
-// suggests bootstrapping afterwards.
-func open(dir string, secrets Secrets, ev Events) (*store.Store, bool, error) {
+// open takes the first route this machine supports, and reports which one. The
+// caller suggests bootstrapping only after the recovery route.
+func open(dir string, secrets Secrets, ev Events) (*store.Store, Route, error) {
 	ev.logf("opening store %s", dir)
 
 	// The agent first, when one is running: it is the only route that costs
 	// neither a key derivation nor a keyring round trip.
 	if s, err := openFromAgent(dir); err == nil {
 		ev.logf("using the running agent")
-		return s, false, nil
+		return s, RouteAgent, nil
 	} else if !errors.Is(err, agent.ErrNoAgent) && !errors.Is(err, agent.ErrExpired) {
 		// A reachable agent that refused is worth reporting rather than
 		// silently working around.
@@ -85,15 +119,15 @@ func open(dir string, secrets Secrets, ev Events) (*store.Store, bool, error) {
 	if localkey.Exists(dir) {
 		ev.logf("using the machine-local key and the keyring")
 		s, err := OpenLocal(dir, ev)
-		return s, false, err
+		return s, RouteLocalKey, err
 	}
 
 	ev.logf("no local key on this machine; using the recovery passphrase")
 	s, err := openWithRecovery(dir, secrets, ev)
 	if err != nil {
-		return nil, false, err
+		return nil, RouteNone, err
 	}
-	return s, true, nil
+	return s, RouteRecovery, nil
 }
 
 // suggestBootstrap points out the faster route, but only where taking it would

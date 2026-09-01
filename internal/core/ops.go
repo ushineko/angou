@@ -20,9 +20,13 @@ import (
 // parity rule turns on both front ends going through the same door. The GUI
 // opens one session and acts on it many times; the CLI opens one per command.
 type Session struct {
-	st *store.Store
-	ev Events
+	st    *store.Store
+	ev    Events
+	route Route
 }
+
+// Route reports how this session opened the store.
+func (s *Session) Route() Route { return s.route }
 
 // Fingerprint is the store's identity key.
 func (s *Session) Fingerprint() string { return s.st.Fingerprint() }

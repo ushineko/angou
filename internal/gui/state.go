@@ -168,14 +168,17 @@ func (u *ui) loadEntries() {
 		for _, e := range s.List() {
 			entries = append(entries, entryFrom(s, e))
 		}
-		trusted := s.IndexTrusted()
+		trusted, route := s.IndexTrusted(), s.Route()
 		fyne.Do(func() {
 			u.entries, u.entriesOK = entries, true
+			// The status bar names the route, so it is redrawn rather than
+			// left showing what was true before the store was opened.
+			u.session.Route = route
 			if !trusted {
 				u.flash("The index is missing or did not verify, so this listing is empty. "+
 					"Reindex rebuilds it from the blobs themselves.", StatusWarn)
 			}
-			u.refresh()
+			u.rebuild()
 		})
 		return nil
 	})

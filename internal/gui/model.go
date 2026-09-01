@@ -1,6 +1,10 @@
 package gui
 
-import "time"
+import (
+	"time"
+
+	"github.com/ushineko/angou/internal/core"
+)
 
 // The types in this file are the view models of spec 002 R8.2: the shapes the
 // widgets render, converted from what internal/core returns. They are separate
@@ -8,35 +12,9 @@ import "time"
 // what to draw, and collapsing the two would put presentation decisions in the
 // package both front ends share.
 
-// UnlockRoute names how this machine currently opens the store. It drives the
-// status bar and nothing else; it is not a capability check.
-type UnlockRoute int
-
-// The routes unlock() tries, in the order it prefers them in reverse: the agent
-// is the fastest and the recovery passphrase is the fallback for a machine with
-// no keyring backend.
-const (
-	// UnlockNone means no store is configured on this machine yet.
-	UnlockNone UnlockRoute = iota
-	// UnlockPassphrase means every command asks for the recovery passphrase.
-	UnlockPassphrase
-	// UnlockLocalKey means this machine holds a local key, unwrapped by the keyring.
-	UnlockLocalKey
-	// UnlockAgent means a running agent is holding the key.
-	UnlockAgent
-)
-
-func (u UnlockRoute) String() string {
-	switch u {
-	case UnlockPassphrase:
-		return "recovery passphrase"
-	case UnlockLocalKey:
-		return "this machine's key"
-	case UnlockAgent:
-		return "agent session"
-	}
-	return "no store"
-}
+// The unlock route is core's type, not a copy. An earlier copy here had already
+// drifted in wording from the one in internal/core, which is exactly how two
+// front ends start describing the same state differently.
 
 // StoreEntry is one row of the Store table — the `ls` listing.
 type StoreEntry struct {
@@ -110,6 +88,6 @@ type AgentState struct {
 // field here: R7.2 forbids holding one beyond the operation that needed it.
 type Session struct {
 	StoreDir string
-	Route    UnlockRoute
+	Route    core.Route
 	Agent    AgentState
 }

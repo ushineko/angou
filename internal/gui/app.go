@@ -24,6 +24,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/ushineko/angou/internal/buildinfo"
+	"github.com/ushineko/angou/internal/core"
 )
 
 // section is one entry in the left navigation.
@@ -274,22 +275,32 @@ func (u *ui) statusBar() fyne.CanvasObject {
 	}
 	agent := statusText(agentTxt, agentStatus)
 
+	// "unlocked by not open" is not a sentence. Before the store has been
+	// opened the bar says so plainly instead.
+	unlocked := container.NewHBox(dim("unlocked by"), route)
+	if u.session.Route == core.RouteNone {
+		unlocked = container.NewHBox(dim("state"), statusText("not open yet", StatusInfo))
+	}
+
 	bar := container.NewHBox(
 		dim("store"), store, sep(),
-		dim("unlocked by"), route, sep(),
+		unlocked, sep(),
 		dim("agent"), agent,
 	)
 	return container.NewVBox(widget.NewSeparator(), container.NewPadded(bar))
 }
 
-func routeStatus(r UnlockRoute) Status {
+// routeStatus ranks a route: holding a local key or an agent session is the
+// state to be in, the recovery passphrase works but means this machine asks
+// every time, and not being open at all is neither.
+func routeStatus(r core.Route) Status {
 	switch r {
-	case UnlockLocalKey, UnlockAgent:
+	case core.RouteLocalKey, core.RouteAgent:
 		return StatusGood
-	case UnlockPassphrase:
+	case core.RouteRecovery:
 		return StatusWarn
 	}
-	return StatusBad
+	return StatusInfo
 }
 
 // flash reports the result of an operation as a banner that fades out on its
