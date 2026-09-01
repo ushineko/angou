@@ -86,6 +86,17 @@ capability the other lacks.
   differently — a wizard where the CLI takes flags, a checklist where the CLI takes
   `--auto`. What it may not do is leave the operation unreachable, or offer a
   destructive path with weaker confirmation than the CLI's.
+- **Every core call from the GUI shows progress.** `ui.busy(what)` puts an
+  indeterminate banner up and returns the function that takes it down; `withSession`
+  wraps it around every session operation, and a raw `go func()` calling into core
+  needs its own. Not only the obviously slow ones: opening a store can mean an Argon2id
+  derivation or a wallet raising its own dialog, a scan walks a tree of unknown size,
+  and the machine this runs on is not the machine it was written on. A window that sits
+  still with no explanation reads as frozen, and the button that looks like it did
+  nothing is the button that gets clicked twice — which for `init` or `rekey` is not a
+  harmless second click. The indicator is indeterminate on purpose: none of these
+  operations can say how far along they are, and a bar that fills steadily would be
+  inventing a number.
 - **Security properties are core properties.** Passphrase zeroing, the no-subprocess
   rule, and the no-secrets-in-logs rule hold in the core and therefore in both front
   ends. The GUI may not relax them for convenience — no passphrase in a widget that

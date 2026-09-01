@@ -347,7 +347,18 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 	scan := widget.NewButtonWithIcon("Scan (dry run)", theme.SearchIcon(), func() {
 		root := dir.Text
 		u.scanRoot = root
+		u.scanning = true
+		u.refresh()
 		go func() {
+			done := u.busy("Scanning " + root + " for credentials…")
+			defer func() {
+				done()
+				fyne.Do(func() {
+					u.scanning = false
+					u.refresh()
+				})
+			}()
+
 			found, err := core.Scan(root)
 			if err != nil {
 				u.report("Scan", err)
@@ -376,6 +387,12 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 		}()
 	})
 	scan.Importance = widget.HighImportance
+	if u.scanning {
+		// A second scan while one is running would replace the list underneath
+		// the first one's results.
+		scan.Disable()
+		scan.SetText("Scanning…")
+	}
 
 	run := widget.NewButtonWithIcon("Encrypt selected", theme.ConfirmIcon(), func() {
 		u.confirmDestructive("Encrypt the selected files?",
@@ -436,6 +453,10 @@ func (u *ui) buildDoctor() fyne.CanvasObject {
 		}
 		dir := u.storeDir()
 		go func() {
+			// This one reads every blob in the store, so it is slow in
+			// proportion to how much is in it.
+			done := u.busy("Checking whether " + fingerprint + " still opens anything…")
+			defer done()
 			opened, err := core.AssertOldKeyDead(dir, fingerprint, guiSecrets{u: u})
 			if err != nil {
 				u.report("Assert old key", err)
@@ -549,6 +570,8 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 					"Forget", func() {
 						dir := u.storeDir()
 						go func() {
+							done := u.busy("Removing this machine's local key…")
+							defer done()
 							r, err := core.ForgetMachine(dir)
 							if err != nil {
 								u.report("Forget", err)
@@ -716,6 +739,8 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 				u.pathDialog("Generate a release-signing key", "Generate",
 					container.NewVBox(path, warn), func() {
 						go func() {
+							done := u.busy("Generating a release-signing key…")
+							defer done()
 							if err := core.GenerateSigningKey(path.Text); err != nil {
 								u.report("Generate signing key", err)
 								return
@@ -763,6 +788,8 @@ func (u *ui) buildAgentBlock() fyne.CanvasObject {
 	stop := widget.NewButton("Stop the session", func() {
 		dir := u.storeDir()
 		go func() {
+			done := u.busy("Stopping the agent…")
+			defer done()
 			stopped, err := core.StopAgent(dir)
 			if err != nil {
 				u.report("Stop agent", err)

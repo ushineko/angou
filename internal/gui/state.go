@@ -123,6 +123,9 @@ func (u *ui) withSession(what string, fn func(*core.Session) error) {
 		return
 	}
 	go func() {
+		done := u.busy(what + "…")
+		defer done()
+
 		s, err := core.Open(dir, guiSecrets{u: u}, u.events())
 		if err != nil {
 			// Mark the load attempted. Without this a failed or cancelled open
@@ -196,6 +199,8 @@ func (u *ui) loadDoctor() {
 		return
 	}
 	go func() {
+		done := u.busy("Inspecting the store and this machine…")
+		defer done()
 		r := core.Doctor(dir, core.NoSecrets{}, core.Events{})
 		groups := make([]DoctorGroup, 0, len(r.Sections))
 		for _, sec := range r.Sections {
@@ -223,6 +228,8 @@ func (u *ui) loadAgent() {
 		return
 	}
 	go func() {
+		done := u.busy("Checking for an agent session…")
+		defer done()
 		st, err := core.AgentState(dir)
 		if err != nil {
 			// Not worth a banner: an unreachable agent is the normal case. Mark
@@ -345,6 +352,12 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 	}
 
 	go func() {
+		// Slow in a way that needs saying: creating a store derives a key with
+		// Argon2id and generates a keypair, and a window that looks frozen
+		// invites a second click on a button that must not run twice.
+		done := u.busy("Creating the store at " + dir + "…")
+		defer done()
+
 		var (
 			secret    []byte
 			bits      float64

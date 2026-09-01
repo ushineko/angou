@@ -13,6 +13,7 @@ import (
 	"image/color"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -69,6 +70,7 @@ type ui struct {
 	// candidates has no companion flag: the scan is always explicit, so an
 	// empty list means "not scanned yet" unambiguously.
 	candidates []ScanCandidate
+	scanning   bool
 	scanRoot   string
 	flashes    *fyne.Container // transient result banners, above the content pane
 }
@@ -301,6 +303,53 @@ func routeStatus(r core.Route) Status {
 		return StatusWarn
 	}
 	return StatusInfo
+}
+
+// busy shows an indeterminate progress banner until the returned function is
+// called.
+//
+// Indeterminate on purpose. None of the operations this covers can say how far
+// along they are: a directory scan does not know how many files it will walk
+// until it has walked them, and an Argon2id derivation is one long step rather
+// than many short ones. A bar that filled steadily would be inventing a number,
+// which is worse than admitting there isn't one.
+//
+// Safe to call from a goroutine: it hops to the UI thread itself, and so does
+// the function it returns. Callers are core operations running off the UI
+// thread, so requiring them to marshal by hand would be an invitation to forget.
+//
+// EVERY core call gets one. Not just the ones that are obviously slow: opening a
+// store can mean an Argon2id derivation or a wallet that raises its own dialog,
+// a scan walks a directory tree of unknown size, and the machine this runs on is
+// not the machine it was written on. A window that sits still with no
+// explanation reads as frozen, and the button that looks like it did nothing is
+// the button that gets clicked twice.
+//
+// withSession wraps this around every session operation, so anything going
+// through it is covered. A raw `go func()` calling into core is not, and needs
+// its own.
+func (u *ui) busy(what string) func() {
+	bar := widget.NewProgressBarInfinite()
+	label := widget.NewLabel(what)
+
+	banner := container.NewBorder(nil, nil, nil, nil,
+		container.NewPadded(container.NewVBox(label, bar)))
+
+	fyne.Do(func() {
+		u.flashes.Add(banner)
+		u.flashes.Refresh()
+	})
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			fyne.Do(func() {
+				bar.Stop()
+				u.flashes.Remove(banner)
+				u.flashes.Refresh()
+			})
+		})
+	}
 }
 
 // flash reports the result of an operation as a banner that fades out on its

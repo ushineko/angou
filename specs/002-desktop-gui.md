@@ -118,6 +118,14 @@ mechanism.
 through a callback and honour a `context.Context` for cancellation. A GUI that cannot
 cancel a re-encryption of every blob in the store is not a usable GUI.
 
+**R3.4.1** Every core call the GUI makes shows an in-progress indicator for as long as
+it runs, whether or not it is expected to be slow. Opening a store can mean an Argon2id
+derivation or a wallet raising a dialog of its own; a scan walks a tree of unknown size.
+The indicator is indeterminate, because none of these can say how far along they are and
+a bar that filled steadily would be inventing a number. The mechanism is one reusable
+call, not a per-operation decision, so that covering a new operation is the default
+rather than something to remember.
+
 **R3.5** `internal/cli` is refactored to render `internal/core` results. It keeps its
 existing output byte-for-byte: the e2e suite asserts on that output and must pass
 unchanged. A refactor that alters CLI behaviour has failed.
