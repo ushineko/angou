@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"mime"
@@ -33,6 +34,11 @@ func (s *Session) Root() string { return s.st.Root() }
 // the listing is empty and retrieval by path still works: the index is a cache,
 // never the authority (R3.7).
 func (s *Session) IndexTrusted() bool { return s.st.IndexTrusted }
+
+// BlobID is the filename a logical path is stored under: the keyed hash of the
+// path, which is what makes the store filenames disclose nothing about what it
+// holds.
+func (s *Session) BlobID(path string) (string, error) { return s.st.BlobID(path) }
 
 // List returns what the store holds, as recorded in the index.
 func (s *Session) List() []store.IndexEntry { return s.st.List() }
@@ -318,9 +324,15 @@ func (p EncryptProgress) skipped(src string, err error) {
 // This is the operation the GUI exists for: the CLI can offer --auto, which
 // takes everything, or a question per file. Both are the same operation with a
 // different Decider behind it.
-func (s *Session) EncryptCandidates(found []Candidate, enc container.Encoding, d Decider, p EncryptProgress) EncryptAllResult {
+func (s *Session) EncryptCandidates(ctx context.Context, found []Candidate, enc container.Encoding, d Decider, p EncryptProgress) (EncryptAllResult, error) {
 	var r EncryptAllResult
 	for _, c := range found {
+		// Checked between files rather than inside one. A cancelled run leaves
+		// the store consistent: each file is either fully written or not
+		// started, and the ones already stored stay stored.
+		if err := ctx.Err(); err != nil {
+			return r, fmt.Errorf("encryption cancelled after %d file(s): %w", r.Stored, err)
+		}
 		logical, err := StoredAs(c.Path)
 		if err != nil {
 			p.skipped(c.Path, err)
@@ -345,7 +357,7 @@ func (s *Session) EncryptCandidates(found []Candidate, enc container.Encoding, d
 		p.stored(c.Path, res)
 		r.Stored++
 	}
-	return r
+	return r, nil
 }
 
 // HumanSize renders a byte count the way a listing would.

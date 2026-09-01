@@ -1,50 +1,18 @@
 package gui
 
 import (
+	"fmt"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+
+	angoucontainer "github.com/ushineko/angou/internal/container"
+	"github.com/ushineko/angou/internal/core"
 )
-
-// passphraseDialog is the prototype of R7.1: a modal, masked entry whose
-// backing buffer is zeroed when the dialog closes by any path.
-//
-// The zeroing here is honest about its reach. We can zero the []byte we take a
-// copy into, and we do. We cannot zero the Go string inside the Entry widget:
-// strings are immutable and the runtime may have copied or relocated it
-// already. That is the R7.3 limitation, and it is the reason the README will
-// describe the GUI's memory hygiene as weaker than the CLI's terminal read
-// rather than equivalent to it.
-func (u *ui) passphraseDialog(title, blurb string) {
-	entry := widget.NewPasswordEntry()
-	entry.SetPlaceHolder("recovery passphrase")
-
-	note := widget.NewLabel(blurb)
-	note.Wrapping = fyne.TextWrapWord
-
-	caveat := widget.NewLabel(
-		"The passphrase is used for this operation and discarded. It is not kept while " +
-			"the window is open; to avoid retyping, start an agent session, which expires on its own.")
-	caveat.Wrapping = fyne.TextWrapWord
-	caveat.Importance = widget.LowImportance
-
-	body := container.NewVBox(note, entry, widget.NewSeparator(), caveat)
-
-	d := dialog.NewCustomConfirm(title, "Continue", "Cancel", body, func(ok bool) {
-		secret := []byte(entry.Text)
-		defer zero(secret)
-		entry.SetText("")
-		if ok {
-			u.notWired(title, "the core operation, with the passphrase supplied by callback")
-		}
-	}, u.win)
-	d.Resize(fyne.NewSize(460, 260))
-	d.Show()
-	u.win.Canvas().Focus(entry)
-}
 
 // zero overwrites a secret buffer. Best effort: Go's garbage collector may have
 // already copied the value elsewhere. Never described as a guarantee.
@@ -81,7 +49,6 @@ func (u *ui) decryptDialog(e StoreEntry) {
 	dest := widget.NewRadioGroup([]string{
 		"Back to where it came from",
 		"To another path…",
-		"To the clipboard",
 	}, nil)
 	if e.Origin == "" {
 		dest.Options[0] = "Back to where it came from (no origin recorded)"
@@ -105,30 +72,32 @@ func (u *ui) decryptDialog(e StoreEntry) {
 		if !ok {
 			return
 		}
-		if overwrite.Checked {
-			u.confirmDestructive("Replace "+path.Text+"?",
-				"A file already exists there. Decrypting will overwrite it, and what is "+
-					"there now is not recoverable from the store.",
-				"Replace", func() { u.notWired("Decrypt", "dec --overwrite") })
-			return
-		}
-		u.notWired("Decrypt", "dec")
+		toPath, overwriteChecked := path.Text, overwrite.Checked
+		restore := dest.Selected == "Back to where it came from"
+
+		u.withSession("Decrypt", func(s *core.Session) error {
+			env, err := s.Get(e.LogicalPath)
+			if err != nil {
+				return err
+			}
+			if restore {
+				// core asks the questions; guiDecider puts them on screen. The
+				// destructive one keeps its no default, so a dialog dismissed
+				// rather than answered does not replace a file.
+				target, err := core.RestoreToOrigin(env, overwriteChecked, guiDecider{u: u})
+				if err != nil {
+					return err
+				}
+				u.ok("Restored " + e.LogicalPath + " to " + target)
+				return nil
+			}
+			if err := core.WriteTo(toPath, env); err != nil {
+				return err
+			}
+			u.ok("Wrote " + e.LogicalPath + " to " + toPath)
+			return nil
+		})
 	}, u.win)
-}
-
-// progressDialog stands in for R3.4: a long operation reports progress and can
-// be cancelled. Cancellation is the requirement worth seeing early — a GUI that
-// cannot stop a re-encryption of every blob is not a usable GUI.
-func (u *ui) progressDialog(title, step string) {
-	bar := widget.NewProgressBar()
-	bar.SetValue(0.375)
-	label := widget.NewLabel(step)
-
-	d := dialog.NewCustomWithoutButtons(title, container.NewVBox(bar, label), u.win)
-	stop := widget.NewButton("Cancel", func() { d.Hide() })
-	d.SetButtons([]fyne.CanvasObject{stop})
-	d.Resize(fyne.NewSize(420, 200))
-	d.Show()
 }
 
 // firstRun is R5.9: with no store configured, the window opens on setup rather
@@ -160,26 +129,12 @@ func (u *ui) firstRun() {
 	)
 
 	d := dialog.NewCustomConfirm("Set up angou", "Create the store", "Cancel", body, func(ok bool) {
-		if ok {
-			u.notWired("Create the store", "init, then bootstrap")
+		if !ok {
+			return
 		}
+		u.createStore(dir.Text, generate.Checked, bootstrap.Checked)
 	}, u.win)
 	d.Resize(fyne.NewSize(540, 380))
-	d.Show()
-}
-
-// notWired is the prototype's honest dead end. Every action reports which core
-// operation it will call rather than pretending to have done something.
-func (u *ui) notWired(what, cmd string) {
-	body := container.NewVBox(
-		widget.NewLabelWithStyle(what, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("Not wired up in this prototype."),
-		widget.NewSeparator(),
-		widget.NewLabel("Pass 3 routes this to internal/core:"),
-		widget.NewLabelWithStyle(cmd, fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}),
-	)
-	d := dialog.NewCustom("Prototype", "Close", body, u.win)
-	d.Resize(fyne.NewSize(440, 260))
 	d.Show()
 }
 
@@ -196,4 +151,218 @@ func fixedWidth(o fyne.CanvasObject, w float32) fyne.CanvasObject {
 	pad := canvas.NewRectangle(nil)
 	pad.SetMinSize(fyne.NewSize(w, 0))
 	return container.New(layout.NewStackLayout(), pad, o)
+}
+
+// askPassphrase puts core's passphrase request on screen and sends the answer
+// back down the channel. Called on the UI thread, by guiSecrets.
+//
+// The buffer sent is a copy the caller owns and zeroes. What cannot be cleaned
+// up is the Go string inside the Entry: strings are immutable and the runtime
+// may already have copied it. That is the R7.3 limitation, stated in About and
+// in the README rather than papered over.
+func (u *ui) askPassphrase(prompt string, answer chan<- []byte) {
+	entry := widget.NewPasswordEntry()
+	entry.SetPlaceHolder("recovery passphrase")
+
+	note := widget.NewLabel(prompt)
+	note.Wrapping = fyne.TextWrapWord
+
+	caveat := widget.NewLabel(
+		"Used for this operation and discarded. It is not kept while the window is open; " +
+			"to avoid retyping, start an agent session, which expires on its own.")
+	caveat.Wrapping = fyne.TextWrapWord
+	caveat.Importance = widget.LowImportance
+
+	sent := false
+	send := func(v []byte) {
+		if !sent {
+			sent = true
+			answer <- v
+		}
+	}
+
+	d := dialog.NewCustomConfirm("angou", "Continue", "Cancel",
+		container.NewVBox(note, entry, widget.NewSeparator(), caveat),
+		func(ok bool) {
+			if !ok {
+				send(nil)
+				entry.SetText("")
+				return
+			}
+			secret := []byte(entry.Text)
+			entry.SetText("")
+			send(secret)
+		}, u.win)
+	d.Resize(fyne.NewSize(460, 260))
+	d.Show()
+	u.win.Canvas().Focus(entry)
+}
+
+// askDecision puts one of core's mid-operation questions on screen. The
+// destructive ones get the destructive styling and keep their no default, the
+// same way the CLI keeps the safe answer safe when there is nobody to ask.
+func (u *ui) askDecision(dec core.Decision, answer chan<- bool) {
+	body := widget.NewLabel(dec.Question)
+	body.Wrapping = fyne.TextWrapWord
+
+	d := dialog.NewCustomWithoutButtons("angou", container.NewVBox(body), u.win)
+
+	sent := false
+	send := func(v bool) {
+		if !sent {
+			sent = true
+			answer <- v
+		}
+		d.Hide()
+	}
+
+	no := widget.NewButton("No", func() { send(false) })
+	yes := widget.NewButton("Yes", func() { send(true) })
+	if dec.Destructive {
+		yes.Importance = widget.DangerImportance
+	} else if dec.Default {
+		yes.Importance = widget.HighImportance
+	}
+	d.SetButtons([]fyne.CanvasObject{no, yes})
+	d.Resize(fyne.NewSize(500, 240))
+	d.Show()
+}
+
+// --- operation dialogs -----------------------------------------------------
+
+// pathDialog is the shape most of these take: a heading, one or more fields,
+// and a confirm that hands the values to a core call.
+func (u *ui) pathDialog(title, confirm string, body fyne.CanvasObject, do func()) {
+	d := dialog.NewCustomConfirm(title, confirm, "Cancel", body, func(ok bool) {
+		if ok {
+			do()
+		}
+	}, u.win)
+	d.Resize(fyne.NewSize(560, 300))
+	d.Show()
+}
+
+// extractDialog asks for a destination root. Extraction is confined beneath it
+// and will not traverse a symlink to leave it, because a stored path is
+// untrusted input: whoever can write to the store chooses it.
+func (u *ui) extractDialog(e StoreEntry) {
+	dest := widget.NewEntry()
+	dest.SetPlaceHolder("destination root")
+
+	note := widget.NewLabel("Every write is confined beneath this directory, and its own " +
+		"directories are recreated inside it. The stored mode and modification time are restored.")
+	note.Wrapping = fyne.TextWrapWord
+	note.Importance = widget.LowImportance
+
+	u.pathDialog("Extract "+e.LogicalPath, "Extract",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", dest)), note),
+		func() {
+			u.withSession("Extract", func(s *core.Session) error {
+				written, err := s.Extract(e.LogicalPath, dest.Text)
+				if err != nil {
+					return err
+				}
+				u.ok("Extracted to " + written)
+				return nil
+			})
+		})
+}
+
+// renameDialog re-addresses a blob. The logical path is part of the signed
+// envelope and is bound to the blob's filename, so the two change together
+// rather than by renaming a file on disk.
+func (u *ui) renameDialog(e StoreEntry) {
+	to := widget.NewEntry()
+	to.SetText(e.LogicalPath)
+
+	note := widget.NewLabel("The blob is rewritten under the new path rather than renamed: " +
+		"the path is inside the signed envelope and addresses the file on disk.")
+	note.Wrapping = fyne.TextWrapWord
+	note.Importance = widget.LowImportance
+
+	u.pathDialog("Rename "+e.LogicalPath, "Rename",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("New path", to)), note),
+		func() {
+			u.withSession("Rename", func(s *core.Session) error {
+				if err := s.Move(e.LogicalPath, to.Text); err != nil {
+					return err
+				}
+				u.ok("Renamed to " + to.Text)
+				return nil
+			})
+		})
+}
+
+// encryptFileDialog encrypts one file. The plaintext is left where it is:
+// removing an original is a separate, deliberate step, and angou will not
+// delete a file you have not seen it store first.
+func (u *ui) encryptFileDialog() {
+	src := widget.NewEntry()
+	src.SetPlaceHolder("file to encrypt")
+	as := widget.NewEntry()
+	as.SetPlaceHolder("store path (leave empty to derive one)")
+	binary := widget.NewCheck("Store raw OpenPGP packets instead of ASCII armor", nil)
+
+	u.pathDialog("Encrypt a file", "Encrypt", container.NewVBox(widget.NewForm(
+		widget.NewFormItem("File", src),
+		widget.NewFormItem("Store as", as),
+	), binary), func() {
+		u.withSession("Encrypt", func(s *core.Session) error {
+			res, err := s.EncryptFile(src.Text, as.Text, encodingFor(binary.Checked))
+			if err != nil {
+				return err
+			}
+			u.ok("Stored as " + res.LogicalPath + ". The original is untouched.")
+			return nil
+		})
+	})
+}
+
+// cloneDialog copies a store to another directory.
+func (u *ui) cloneDialog() {
+	to := widget.NewEntry()
+	to.SetPlaceHolder("destination, which must not already exist")
+	noBinaries := widget.NewCheck("Leave the platform binaries behind", nil)
+
+	u.pathDialog("Clone the store", "Clone", container.NewVBox(
+		widget.NewForm(widget.NewFormItem("Destination", to)), noBinaries), func() {
+		from := storeDir()
+		go func() {
+			n, err := core.CopyStore(from, to.Text, noBinaries.Checked)
+			if err != nil {
+				u.report("Clone", err)
+				return
+			}
+			u.ok(fmt.Sprintf("Copied %d file(s) to %s", n, to.Text))
+		}()
+	})
+}
+
+// encodingFor maps the armor checkbox to a container encoding.
+func encodingFor(binary bool) angoucontainer.Encoding {
+	if binary {
+		return angoucontainer.EncodingBinary
+	}
+	return angoucontainer.EncodingArmor
+}
+
+// showRecoveryPassphrase displays a generated passphrase exactly once.
+//
+// It is not written anywhere angou can reach, and this dialog is the only time
+// it is shown. If it is lost and no machine holds a local key, the store cannot
+// be opened — not by the user and not by us.
+func (u *ui) showRecoveryPassphrase(phrase string, bits float64) {
+	value := widget.NewLabelWithStyle(phrase, fyne.TextAlignCenter, fyne.TextStyle{Monospace: true, Bold: true})
+	value.Wrapping = fyne.TextWrapBreak
+
+	warn := widget.NewLabel(fmt.Sprintf(
+		"This is shown exactly once, and it is about %.0f bits of entropy. Write it down now, "+
+			"somewhere that is not this machine. There is no reset and no backdoor.", bits))
+	warn.Wrapping = fyne.TextWrapWord
+	warn.Importance = widget.WarningImportance
+
+	d := dialog.NewCustom("Your recovery passphrase", "I have written it down",
+		container.NewVBox(value, widget.NewSeparator(), warn), u.win)
+	d.Resize(fyne.NewSize(520, 300))
+	d.Show()
 }

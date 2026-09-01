@@ -123,7 +123,7 @@ func encryptAll(root string, auto, dryRun bool, enc container.Encoding) error {
 		decider = core.DeciderFunc(func(core.Decision) bool { return true })
 	}
 
-	r := s.EncryptCandidates(found, enc, decider, core.EncryptProgress{
+	r, err := s.EncryptCandidates(cmdContext(), found, enc, decider, core.EncryptProgress{
 		Stored: func(src string, res core.EncryptResult) {
 			fmt.Printf("%s -> %s\n", src, res.LogicalPath)
 		},
@@ -133,6 +133,9 @@ func encryptAll(root string, auto, dryRun bool, enc container.Encoding) error {
 			}
 		},
 	})
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr, "\nEncrypted %d, skipped %d. The originals are untouched.\n", r.Stored, r.Skipped)
 	return nil
 }

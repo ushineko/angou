@@ -3,9 +3,10 @@ package gui
 import "time"
 
 // The types in this file are the view models of spec 002 R8.2: the shapes the
-// widgets render. In pass 3 they are produced by internal/core from a real
-// store. Until then they are produced by fixtures.go, and nothing in this
-// package opens a store, reads key material, or writes outside the window.
+// widgets render, converted from what internal/core returns. They are separate
+// from core's own types on purpose — core's describe the store, these describe
+// what to draw, and collapsing the two would put presentation decisions in the
+// package both front ends share.
 
 // UnlockRoute names how this machine currently opens the store. It drives the
 // status bar and nothing else; it is not a capability check.
@@ -42,9 +43,13 @@ type StoreEntry struct {
 	LogicalPath string // as you named it
 	RawName     string // as it sits on disk, for the --raw toggle
 	Size        int64
-	Armored     bool
-	Modified    time.Time
-	Origin      string // recorded origin, or empty when there is none
+	// Mode is the POSIX mode the file had when it was stored. The index does
+	// not record the container encoding, so this is shown instead -- it is also
+	// what `ls` shows, and it is the field that matters when deciding whether a
+	// restore would widen a private key's permissions.
+	Mode     uint32
+	Modified time.Time
+	Origin   string // recorded origin, or empty when there is none
 }
 
 // ScanCandidate is one row of the Encrypt scan — what `enc --all --dry-run`

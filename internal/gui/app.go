@@ -1,17 +1,17 @@
 // Package gui is the desktop front end of spec 002.
 //
-// This is the pass-1 prototype: the window, its navigation, and the layout of
-// every section, driven by the fixtures in fixtures.go. It performs no store
-// operation. It opens no store, reads no key material, and writes nothing
-// outside its own window — including no preferences file, so running it leaves
-// the machine exactly as it found it.
+// The window renders internal/core and does nothing else: it holds no store
+// logic of its own and reaches no further than the core, which is the rule that
+// keeps it in step with the CLI.
 //
-// Pass 2 extracts internal/core; pass 3 wires these views to it.
+// Every core call runs off the UI thread — see state.go for why the passphrase
+// and confirmation callbacks make that mandatory rather than merely tidy.
 package gui
 
 import (
 	"fmt"
 	"image/color"
+	"os"
 	"strings"
 	"time"
 
@@ -48,7 +48,15 @@ type ui struct {
 
 	content *container.Scroll
 	nav     *widget.List
-	flashes *fyne.Container // transient result banners, above the content pane
+	current int // the selected section, so an operation can rebuild it
+
+	// Loaded from the store on a goroutine, read and written on the UI thread.
+	entries    []StoreEntry
+	doctor     []DoctorGroup
+	releases   []ReleaseEntry
+	candidates []ScanCandidate
+	scanRoot   string
+	flashes    *fyne.Container // transient result banners, above the content pane
 }
 
 // Preference keys. Namespaced so a later setting cannot collide with one of
@@ -119,8 +127,9 @@ func Run(o Options) {
 	// else (R5A.6): no store path, no fingerprint, no secret. The prototype
 	// still opens no store and reads no key material.
 	a := app.NewWithID("io.ushineko.angou")
-	u := &ui{app: a, version: o.Version, session: fixtureSession()}
-	u.win = a.NewWindow("angou " + o.Version + " — prototype (fixture data, no store is opened)")
+	home, _ := os.UserHomeDir()
+	u := &ui{app: a, version: o.Version, session: Session{StoreDir: storeDir()}, scanRoot: home}
+	u.win = a.NewWindow("angou " + o.Version)
 	u.win.SetIcon(appIcon())
 	a.SetIcon(appIcon())
 	u.loadAppearance()
@@ -150,7 +159,10 @@ func Run(o Options) {
 			row.Objects[1].(*widget.Label).SetText(secs[i].title)
 		},
 	)
-	u.nav.OnSelected = func(i widget.ListItemID) { u.show(secs[i].build(u)) }
+	u.nav.OnSelected = func(i widget.ListItemID) {
+		u.current = i
+		u.show(secs[i].build(u))
+	}
 
 	split := container.NewHSplit(u.nav, container.NewBorder(u.flashes, nil, nil, nil, u.content))
 	split.SetOffset(0.16)
@@ -189,6 +201,15 @@ func SectionNames() []string {
 // SchemeNames lists the colour schemes, for the same reason.
 func SchemeNames() []string { return paletteNames() }
 
+// refresh rebuilds the current section, so a view showing store contents picks
+// up what an operation just changed. Called on the UI thread.
+func (u *ui) refresh() {
+	secs := sections()
+	if u.current >= 0 && u.current < len(secs) {
+		u.show(secs[u.current].build(u))
+	}
+}
+
 func (u *ui) show(o fyne.CanvasObject) {
 	u.content.Content = o
 	u.content.Refresh()
@@ -200,15 +221,10 @@ func (u *ui) show(o fyne.CanvasObject) {
 // is the point of this prototype.
 func (u *ui) header() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("angou", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	note := widget.NewLabel("prototype — every value below is fixture data")
-	note.Importance = widget.LowImportance
 
-	// The first-run flow is reachable here so it can be reviewed without
-	// unconfiguring the machine. In the shipped GUI it opens by itself when no
-	// store is configured (R5.10) and has no button of its own.
 	setup := widget.NewButton("First-run setup…", func() { u.firstRun() })
 
-	bar := container.NewHBox(title, note, layout.NewSpacer(), setup)
+	bar := container.NewHBox(title, layout.NewSpacer(), setup)
 	return container.NewVBox(container.NewPadded(bar), widget.NewSeparator())
 }
 
@@ -362,4 +378,37 @@ func humanAgo(t time.Time) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+// Actions is every operation this window can reach, named by the CLI command it
+// corresponds to.
+//
+// It exists for the parity test in tests/e2e: that test walks the cobra command
+// tree and this list and fails when either holds an operation the other does
+// not. Adding a command without a GUI affordance breaks the build, which is the
+// point — the two front ends drift silently otherwise, and a rule enforced only
+// by review is a rule that lasts until the first busy week.
+//
+// A name here is a claim that the operation is reachable and wired, not that a
+// button exists. Do not add one to quiet the test.
+func Actions() []string {
+	return []string{
+		"init",
+		"bootstrap",
+		"doctor",
+		"enc",
+		"dec",
+		"get",
+		"ls",
+		"rm",
+		"mv",
+		"reindex",
+		"rekey",
+		"passwd",
+		"prune",
+		"release",
+		"verify-bootstrap",
+		"clone",
+		"agent",
+	}
 }

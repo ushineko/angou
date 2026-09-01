@@ -4,18 +4,21 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/ushineko/angou/internal/core"
 )
 
 // --- Store (R5.3) ---------------------------------------------------------
 
 func (u *ui) buildStore() fyne.CanvasObject {
-	entries := fixtureEntries()
+	entries := u.entries
 	raw := false
 	selected := -1
 	sortCol, sortAsc := 0, true
@@ -23,7 +26,7 @@ func (u *ui) buildStore() fyne.CanvasObject {
 	cols := []struct {
 		title string
 		width float32
-	}{{"Path", 320}, {"Size", 90}, {"Encoding", 100}, {"Modified", 110}, {"Origin", 300}}
+	}{{"Path", 320}, {"Size", 90}, {"Mode", 110}, {"Modified", 110}, {"Origin", 300}}
 
 	// resort orders the rows by the active column. It is stable, so re-sorting
 	// by a column with ties leaves the previous order inside each tie rather
@@ -42,7 +45,7 @@ func (u *ui) buildStore() fyne.CanvasObject {
 			case 1:
 				less = a.Size < b.Size
 			case 2:
-				less = !a.Armored && b.Armored
+				less = a.Mode < b.Mode
 			case 3:
 				less = a.Modified.Before(b.Modified)
 			case 4:
@@ -77,11 +80,7 @@ func (u *ui) buildStore() fyne.CanvasObject {
 			case 1:
 				l.SetText(humanSize(e.Size))
 			case 2:
-				if e.Armored {
-					l.SetText("armor")
-				} else {
-					l.SetText("binary")
-				}
+				l.SetText(formatMode(e.Mode))
 			case 3:
 				l.SetText(humanAgo(e.Modified))
 			case 4:
@@ -166,8 +165,8 @@ func (u *ui) buildStore() fyne.CanvasObject {
 		}
 	}
 	dec.OnTapped = func() { u.decryptDialog(entries[selected]) }
-	get.OnTapped = func() { u.notWired("Extract", "get --dest") }
-	mv.OnTapped = func() { u.notWired("Rename", "mv") }
+	get.OnTapped = func() { u.extractDialog(entries[selected]) }
+	mv.OnTapped = func() { u.renameDialog(entries[selected]) }
 	rm.OnTapped = func() {
 		e := entries[selected]
 		u.confirmDestructive("Remove "+e.LogicalPath+"?",
@@ -175,7 +174,13 @@ func (u *ui) buildStore() fyne.CanvasObject {
 				originOrNone(e)+" is not touched.\n\nThere is no undo inside angou. If the "+
 				"store is the only copy, this is the only copy.",
 			"Remove", func() {
-				u.flash("Removed "+e.LogicalPath+" — not actually wired in this prototype", StatusGood)
+				u.withSession("Remove", func(s *core.Session) error {
+					if err := s.Remove(e.LogicalPath); err != nil {
+						return err
+					}
+					u.ok("Removed " + e.LogicalPath)
+					return nil
+				})
 			})
 	}
 
@@ -188,10 +193,24 @@ func (u *ui) buildStore() fyne.CanvasObject {
 	})
 
 	toolbar := container.NewHBox(
-		widget.NewButtonWithIcon("Encrypt file…", theme.ContentAddIcon(), func() { u.notWired("Encrypt file", "enc") }),
+		widget.NewButtonWithIcon("Encrypt file…", theme.ContentAddIcon(), func() { u.encryptFileDialog() }),
 		widget.NewButtonWithIcon("Scan directory…", theme.SearchIcon(), func() { u.nav.Select(1) }),
 		widget.NewButtonWithIcon("Reindex", theme.ViewRefreshIcon(), func() {
-			u.flash("Rebuilt the index from 8 blobs — not actually wired in this prototype", StatusGood)
+			u.withSession("Reindex", func(s *core.Session) error {
+				r, err := s.Reindex()
+				if err != nil {
+					return err
+				}
+				u.ok(fmt.Sprintf("Reindexed %d entries.", r.Entries))
+				for _, n := range r.Unreadable {
+					name := n
+					fyne.Do(func() {
+						u.flash("Ignored "+name+" — it does not decrypt with this store's key. "+
+							"Usually a leftover from an interrupted rekey; Prune removes them.", StatusWarn)
+					})
+				}
+				return nil
+			})
 		}),
 		widget.NewButtonWithIcon("Prune…", theme.DeleteIcon(), func() {
 			u.confirmDestructive("Prune the store?",
@@ -200,17 +219,32 @@ func (u *ui) buildStore() fyne.CanvasObject {
 					"gone, the key you rotated away from still opens the blobs it wrote. It also "+
 					"means a machine still holding only that old key can no longer open anything.",
 				"Prune", func() {
-					u.flash("Pruned 1 superseded key bundle. Confirm the old key opens nothing.", StatusWarn)
+					u.withSession("Prune", func(s *core.Session) error {
+						secret, err := guiSecrets{u: u}.Recovery("Recovery passphrase, to prune superseded bundles:")
+						if err != nil {
+							return err
+						}
+						defer zero(secret)
+						if err := s.PruneSupersededBundles(secret); err != nil {
+							return err
+						}
+						u.ok("Kept the key bundle that opens this store and removed the rest. " +
+							"Confirm the old key opens nothing, in Doctor.")
+						return nil
+					})
 				})
 		}),
-		widget.NewButtonWithIcon("Clone…", theme.ContentCopyIcon(), func() { u.notWired("Clone", "clone --to") }),
+		widget.NewButtonWithIcon("Clone…", theme.ContentCopyIcon(), func() { u.cloneDialog() }),
 	)
 
-	top := container.NewVBox(
-		heading("Store", "What the store holds. Select a row to act on it."),
-		toolbar,
-		container.NewHBox(rawToggle),
-	)
+	head := heading("Store", "What the store holds. Select a row to act on it.")
+	if len(entries) == 0 {
+		// Distinguish "not loaded yet" from "empty": an empty table with no
+		// explanation reads as a broken store.
+		head = heading("Store", "Opening the store…")
+		u.loadEntries()
+	}
+	top := container.NewVBox(head, toolbar, container.NewHBox(rawToggle))
 	bottom := container.NewVBox(widget.NewSeparator(), container.NewHBox(rowActions[0], rowActions[1], rowActions[2], rowActions[3]))
 
 	return container.NewBorder(top, bottom, nil, nil, fixedHeight(table, 380))
@@ -226,10 +260,10 @@ func originOrNone(e StoreEntry) string {
 // --- Encrypt (R5.4) -------------------------------------------------------
 
 func (u *ui) buildEncrypt() fyne.CanvasObject {
-	cands := fixtureCandidates()
+	cands := u.candidates
 
 	dir := widget.NewEntry()
-	dir.SetText("/home/example")
+	dir.SetText(u.scanRoot)
 	dir.SetPlaceHolder("directory to scan")
 
 	count := widget.NewLabel("")
@@ -308,8 +342,35 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 	// The dry run is the default and costs nothing. Encrypting is the second,
 	// explicit step (R5.4).
 	scan := widget.NewButtonWithIcon("Scan (dry run)", theme.SearchIcon(), func() {
-		list.Refresh()
-		refreshCount()
+		root := dir.Text
+		u.scanRoot = root
+		go func() {
+			found, err := core.Scan(root)
+			if err != nil {
+				u.report("Scan", err)
+				return
+			}
+			out := make([]ScanCandidate, 0, len(found))
+			for _, c := range found {
+				sc := ScanCandidate{Path: c.Path, Reason: c.Reason, Size: c.Size, Selected: true}
+				if _, err := core.StoredAs(c.Path); err != nil {
+					// A file the store cannot name is shown with the reason
+					// rather than silently dropped, and cannot be selected.
+					sc.Reason = c.Reason + " — cannot be stored: " + err.Error()
+					sc.Selected, sc.Stored = false, true
+				}
+				out = append(out, sc)
+			}
+			fyne.Do(func() {
+				u.candidates = out
+				if len(out) == 0 {
+					u.flash("Nothing under "+root+" looked like a credential. That is not an "+
+						"assurance: the scan knows the usual names and places, not every way a "+
+						"secret can be written down.", StatusInfo)
+				}
+				u.refresh()
+			})
+		}()
 	})
 	scan.Importance = widget.HighImportance
 
@@ -318,15 +379,7 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 			"Each selected file is encrypted into the store and its origin recorded.\n\n"+
 				"The plaintext is left where it is. Removing the originals is a separate, "+
 				"deliberate step — angou will not delete a file you have not seen it store first.",
-			"Encrypt", func() {
-				n := 0
-				for _, c := range cands {
-					if c.Selected {
-						n++
-					}
-				}
-				u.flash(fmt.Sprintf("Encrypted %d files into the store — not actually wired in this prototype", n), StatusGood)
-			})
+			"Encrypt", func() { u.encryptSelected(cands) })
 	})
 
 	top := container.NewVBox(
@@ -335,7 +388,7 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 				"This is the flow the command line does worst: --auto takes everything the scanner found, "+
 				"and the alternative is a prompt per file."),
 		container.NewBorder(nil, nil, widget.NewLabel("Directory"),
-			widget.NewButtonWithIcon("Browse…", theme.FolderOpenIcon(), func() { u.notWired("Browse", "a directory picker") }), dir),
+			nil, dir),
 		container.NewHBox(scan, all, none, count),
 		widget.NewSeparator(),
 	)
@@ -347,7 +400,10 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 
 func (u *ui) buildDoctor() fyne.CanvasObject {
 	body := container.NewVBox()
-	for _, g := range fixtureDoctor() {
+	if u.doctor == nil {
+		u.loadDoctor()
+	}
+	for _, g := range u.doctor {
 		body.Add(widget.NewLabelWithStyle(g.Title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 		for _, r := range g.Rows {
 			label := widget.NewLabel(r.Label)
@@ -369,7 +425,29 @@ func (u *ui) buildDoctor() fyne.CanvasObject {
 	// own result rather than a line in the listing above (R5.5).
 	oldKey := widget.NewEntry()
 	oldKey.SetPlaceHolder("fingerprint of a superseded key")
-	assert := widget.NewButton("Assert this key opens nothing", func() { u.notWired("Assert old key", "doctor --old-key") })
+	assert := widget.NewButton("Assert this key opens nothing", func() {
+		fingerprint := core.NormalizeFingerprint(oldKey.Text)
+		if fingerprint == "" {
+			u.flash("Enter the fingerprint of the superseded key first.", StatusWarn)
+			return
+		}
+		dir := storeDir()
+		go func() {
+			opened, err := core.AssertOldKeyDead(dir, fingerprint, guiSecrets{u: u})
+			if err != nil {
+				u.report("Assert old key", err)
+				return
+			}
+			if len(opened) > 0 {
+				fyne.Do(func() {
+					u.flash(fmt.Sprintf("The rotation is incomplete: %s still opens %d file(s).",
+						fingerprint, len(opened)), StatusBad)
+				})
+				return
+			}
+			u.ok("The superseded key " + fingerprint + " opens nothing in this store.")
+		}()
+	})
 
 	// The report is the reason the section exists, so it starts immediately under
 	// the heading. The assertion is a secondary tool and sits below it: placed
@@ -405,12 +483,56 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 	safe := container.NewVBox(
 		action("Set this machine up", "Store a local key so commands stop asking for the recovery passphrase.",
 			"Bootstrap", false, func() {
-				u.passphraseDialog("Set this machine up", "The recovery passphrase is needed once, to derive this machine's key.")
+				u.withSession("Bootstrap", func(s *core.Session) error {
+					exported, err := s.ExportLocalIdentity()
+					if err != nil {
+						return err
+					}
+					defer zero(exported)
+					r, err := s.SetUpMachine(exported)
+					if err != nil {
+						return err
+					}
+					if !r.UsedKeyring {
+						fyne.Do(func() {
+							u.flash("No keyring is available on this machine, so the identity was not "+
+								"re-protected here. The store remains reachable with the recovery "+
+								"passphrase. Cause: "+r.Cause.Error(), StatusWarn)
+						})
+						return nil
+					}
+					u.ok("This machine now opens the store without the recovery passphrase.")
+					return nil
+				})
 			}),
 		action("Change the machine password", "Rotates this machine's local password. The store is untouched, and no other machine is affected.",
-			"Rotate local", false, func() { u.notWired("Rotate local", "rekey --local") }),
+			"Rotate local", false, func() {
+				u.withSession("Rotate local", func(s *core.Session) error {
+					if err := s.RotateLocalPassword(); err != nil {
+						return err
+					}
+					u.ok("Rotated the machine password. No blob changed and no other machine is affected.")
+					return nil
+				})
+			}),
 		action("Change the recovery passphrase", "Re-wraps the key bundle under a new passphrase. Existing blobs are not rewritten.",
-			"Change passphrase", false, func() { u.passphraseDialog("Change the recovery passphrase", "Enter the current recovery passphrase.") }),
+			"Change passphrase", false, func() {
+				u.withSession("Change passphrase", func(s *core.Session) error {
+					fresh, err := guiSecrets{u: u}.Recovery("New recovery passphrase:")
+					if err != nil {
+						return err
+					}
+					defer zero(fresh)
+					if _, err := core.CheckPassphrase(string(fresh)); err != nil {
+						return err
+					}
+					if err := s.RewrapRecovery(fresh); err != nil {
+						return err
+					}
+					u.ok("Changed the recovery passphrase. Existing blobs were not rewritten.")
+					return nil
+				})
+			}),
 	)
 
 	danger := container.NewVBox(
@@ -421,7 +543,22 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 					"This removes the local key and the keyring entry.\n\n"+
 						"Afterwards this machine opens the store only with the recovery passphrase. "+
 						"If you do not have it written down somewhere, this machine will not open the store again.",
-					"Forget", func() { u.notWired("Forget", "bootstrap --forget") })
+					"Forget", func() {
+						dir := storeDir()
+						go func() {
+							r, err := core.ForgetMachine(dir)
+							if err != nil {
+								u.report("Forget", err)
+								return
+							}
+							if !r.HadKey {
+								u.ok("This machine holds no local key for " + dir + ".")
+								return
+							}
+							u.ok("Removed this machine's local key. Commands will ask for the " +
+								"recovery passphrase again until you bootstrap.")
+						}()
+					})
 			}),
 		action("Rotate the store identity",
 			"Generates a new keypair and naming key and re-encrypts every blob in the store. Long-running. Every other machine must bootstrap again afterwards, and the superseded bundle stays in the store until you prune it.",
@@ -434,7 +571,24 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 						"deliberately, so an interruption is recoverable — which means the "+
 						"rotation is not finished until you prune it and confirm the old key "+
 						"opens nothing.",
-					"Rotate", func() { u.progressDialog("Rotating identity", "Re-encrypting blob 3 of 8") })
+					"Rotate", func() {
+						u.withSession("Rotate identity", func(s *core.Session) error {
+							secret, err := guiSecrets{u: u}.Recovery(
+								"Recovery passphrase, to re-wrap the new key bundle:")
+							if err != nil {
+								return err
+							}
+							defer zero(secret)
+							res, err := s.RekeyIdentity(secret)
+							if err != nil {
+								return err
+							}
+							u.ok(fmt.Sprintf("Rotated to %s. Every other machine must bootstrap again, "+
+								"and the rotation is not finished until you prune the superseded bundle.",
+								res.NewFingerprint))
+							return nil
+						})
+					})
 			}),
 	)
 
@@ -470,7 +624,7 @@ func action(title, blurb, button string, danger bool, tapped func()) fyne.Canvas
 // --- Release (R5.7) -------------------------------------------------------
 
 func (u *ui) buildRelease() fyne.CanvasObject {
-	rels := fixtureReleases()
+	rels := u.releases
 
 	dist := widget.NewEntry()
 	dist.SetText("dist/")
@@ -516,9 +670,57 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 			"Stash built binaries in the store's bootstrap namespace so a bare machine can install one."),
 		form,
 		container.NewHBox(
-			widget.NewButtonWithIcon("Stash binaries", theme.UploadIcon(), func() { u.notWired("Stash", "release") }),
-			widget.NewButton("Generate a signing key…", func() { u.notWired("Generate signing key", "release --new-signing-key") }),
-			widget.NewButton("Verify bootstrap.sh", func() { u.notWired("Verify bootstrap", "verify-bootstrap") }),
+			widget.NewButtonWithIcon("Stash binaries", theme.UploadIcon(), func() {
+				keepN, _ := strconv.Atoi(keep.Selected)
+				u.withSession("Stash binaries", func(s *core.Session) error {
+					if err := core.StashRelease(s, dist.Text, key.Text, keepN, guiSecrets{u: u}); err != nil {
+						return err
+					}
+					u.ok("Stashed the binaries in the bootstrap namespace.")
+					return nil
+				})
+			}),
+			widget.NewButton("Verify bootstrap.sh", func() {
+				u.withSession("Verify bootstrap", func(s *core.Session) error {
+					c, err := s.VerifyBootstrap()
+					if err != nil {
+						return err
+					}
+					switch {
+					case c.Recorded == "":
+						u.ok("No digest is recorded for bootstrap.sh, so there is nothing to compare against.")
+					case c.Matches:
+						u.ok("bootstrap.sh matches the digest recorded in this store. " +
+							"That is drift detection after the fact, not a guarantee about any run.")
+					default:
+						fyne.Do(func() {
+							u.flash("bootstrap.sh does NOT match the digest recorded in this store. "+
+								"Read it before any machine runs it.", StatusBad)
+						})
+					}
+					return nil
+				})
+			}),
+			widget.NewButton("Generate a signing key…", func() {
+				path := widget.NewEntry()
+				path.SetPlaceHolder("where to write the signing key")
+				warn := widget.NewLabel("The signing key decides which binaries every future " +
+					"bootstrap accepts as genuine. Move it to offline storage once this finishes; " +
+					"left here, it is one compromise away from letting someone plant a binary your " +
+					"other machines install and run.")
+				warn.Wrapping = fyne.TextWrapWord
+				warn.Importance = widget.WarningImportance
+				u.pathDialog("Generate a release-signing key", "Generate",
+					container.NewVBox(path, warn), func() {
+						go func() {
+							if err := core.GenerateSigningKey(path.Text); err != nil {
+								u.report("Generate signing key", err)
+								return
+							}
+							u.ok("Wrote a signing key to " + path.Text + ". Move it offline now.")
+						}()
+					})
+			}),
 		),
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("In the bootstrap namespace", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -546,13 +748,30 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 // about operations rather than controls.
 func (u *ui) buildAgentBlock() fyne.CanvasObject {
 	a := u.session.Agent
+	if a.Socket == "" {
+		u.loadAgent()
+	}
 
 	state := statusText("not running", StatusInfo)
 	if a.Running {
 		state = statusText("running · "+a.Remaining.Round(1e9).String()+" remaining", StatusGood)
 	}
 
-	stop := widget.NewButton("Stop the session", func() { u.notWired("Stop agent", "agent stop") })
+	stop := widget.NewButton("Stop the session", func() {
+		dir := storeDir()
+		go func() {
+			stopped, err := core.StopAgent(dir)
+			if err != nil {
+				u.report("Stop agent", err)
+				return
+			}
+			if !stopped {
+				u.ok("No agent is running for this store.")
+				return
+			}
+			u.ok("Stopped the agent.")
+		}()
+	})
 	stop.Importance = widget.DangerImportance
 
 	blurb := widget.NewLabel(
@@ -572,8 +791,7 @@ func (u *ui) buildAgentBlock() fyne.CanvasObject {
 			widget.NewFormItem("Socket", widget.NewLabel(a.Socket)),
 		),
 		container.NewHBox(
-			widget.NewButtonWithIcon("Start a session", theme.MediaPlayIcon(),
-				func() { u.notWired("Start agent", "agent start") }),
+			widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), func() { u.loadAgent() }),
 			stop,
 		),
 	)

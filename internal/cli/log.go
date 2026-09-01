@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -42,3 +43,11 @@ func events() core.Events {
 		},
 	}
 }
+
+// cmdContext is the context long operations run under.
+//
+// The CLI has nothing to cancel with — Ctrl-C kills the process — so this is
+// Background. It exists so the operations take a context at all, which is what
+// the GUI needs: a re-encryption of every blob that cannot be stopped is not
+// something to put behind a button.
+func cmdContext() context.Context { return context.Background() }
