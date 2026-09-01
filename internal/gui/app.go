@@ -68,12 +68,13 @@ type ui struct {
 	// store load forever, raising a fresh passphrase dialog every time round.
 	// "Loaded and empty" and "not loaded" are different states and need to be
 	// stored as such.
-	entries   []StoreEntry
-	entriesOK bool
-	doctor    []DoctorGroup
-	doctorOK  bool
-	releases  []ReleaseEntry
-	agentOK   bool
+	entries    []StoreEntry
+	entriesOK  bool
+	doctor     []DoctorGroup
+	doctorOK   bool
+	releases   []ReleaseEntry
+	releasesOK bool
+	agentOK    bool
 	// candidates has no companion flag: the scan is always explicit, so an
 	// empty list means "not scanned yet" unambiguously.
 	candidates []ScanCandidate

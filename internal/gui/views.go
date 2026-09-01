@@ -614,6 +614,9 @@ func action(title, blurb, button string, danger bool, tapped func()) fyne.Canvas
 
 func (u *ui) buildRelease() fyne.CanvasObject {
 	rels := u.releases
+	if !u.releasesOK {
+		u.loadReleases()
+	}
 
 	dist := widget.NewEntry()
 	dist.SetText("dist/")

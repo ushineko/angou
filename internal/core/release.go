@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,10 +50,27 @@ func GenerateSigningKey(path string) error {
 	return nil
 }
 
+// StashedBinaries lists what the store's bootstrap namespace currently holds.
+func (s *Session) StashedBinaries() ([]release.Artifact, error) {
+	return release.List(filepath.Join(s.Root(), store.BootstrapDir))
+}
+
 // StashRelease signs the built binaries and puts them in the store's bootstrap
 // namespace, so a machine with no angou can install one from the store
 // (spec 001 R5.3).
 func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Secrets) error {
+	// Checked before anything is opened. Without this an empty field reaches
+	// os.ReadFile and comes back as `open : no such file or directory`, an
+	// error with a hole where the path should be, which tells the user nothing
+	// about which field they left blank.
+	if signingKeyPath == "" {
+		return errors.New("a release-signing key is required.\n" +
+			"Create one with `angou release --new-signing-key <path>`, and keep it offline")
+	}
+	if dist == "" {
+		return errors.New("a directory of built binaries is required")
+	}
+
 	raw, err := os.ReadFile(signingKeyPath) //nolint:gosec // the path is the user's own argument
 	if err != nil {
 		return fmt.Errorf("read signing key: %w", err)

@@ -59,7 +59,8 @@ func (u *ui) setStoreDir(dir string) {
 	// Everything on screen describes the previous store.
 	u.entries, u.entriesOK = nil, false
 	u.doctor, u.doctorOK = nil, false
-	u.releases, u.agentOK = nil, false
+	u.releases, u.releasesOK = nil, false
+	u.agentOK = false
 	u.candidates = nil
 	u.rebuild()
 	if os.Getenv(StoreEnv) != "" && os.Getenv(StoreEnv) != dir {
@@ -493,4 +494,32 @@ func (u *ui) startScan(root string) {
 			u.refresh()
 		})
 	}()
+}
+
+// loadReleases fills the bootstrap-namespace listing.
+func (u *ui) loadReleases() {
+	u.withSession("Read the bootstrap namespace", func(s *core.Session) error {
+		arts, err := s.StashedBinaries()
+		if err != nil {
+			return err
+		}
+		out := make([]ReleaseEntry, 0, len(arts))
+		for _, a := range arts {
+			out = append(out, ReleaseEntry{
+				Platform: a.GOOS + "/" + a.GOARCH,
+				Version:  a.Version,
+				Size:     a.Metadata.Size,
+				// release.List only returns an artifact when its signature and
+				// metadata are both present and parse, so anything listed here
+				// is signed. The field stays because an unsigned leftover on
+				// disk is a state worth being able to show.
+				Signed: true,
+			})
+		}
+		fyne.Do(func() {
+			u.releases, u.releasesOK = out, true
+			u.refresh()
+		})
+		return nil
+	})
 }
