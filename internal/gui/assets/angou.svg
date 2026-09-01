@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="angou">
+  <!-- Three shapes and nothing else. Everything here survives a 16px taskbar:
+       the shackle is 7px wide at a 64px viewBox, the keyhole is a 9px disc, and
+       there is no detail below that size to turn to mush. -->
+  <path d="M20 30 V22 a12 12 0 0 1 24 0 V30"
+        fill="none" stroke="#1f6f9c" stroke-width="7" stroke-linecap="round"/>
+  <rect x="9" y="28" width="46" height="28" rx="6" fill="#3daee9"/>
+  <path d="M32 34.5a4.5 4.5 0 0 0-2.2 8.4V48a2.2 2.2 0 0 0 4.4 0v-5.1A4.5 4.5 0 0 0 32 34.5z"
+        fill="#ffffff"/>
+</svg>

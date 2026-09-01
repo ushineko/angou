@@ -58,6 +58,41 @@ This project handles key material. The following hold without exception:
 
 ---
 
+## CLI/GUI Feature Parity (non-negotiable)
+
+angou ships two front ends over one store. They must stay in sync: every operation
+reachable from the CLI is reachable from the GUI, and neither front end may grow a
+capability the other lacks.
+
+- **One shared core.** Operations live in `internal/core` as headless functions that
+  take a request struct and return a result struct or an error. They render nothing
+  and prompt for nothing. `internal/cli` renders those results as text; the GUI
+  renders the same results as widgets. Neither front end may reimplement an operation
+  or reach past `internal/core` into `internal/store` and friends to assemble one
+  itself.
+- **A new operation lands in the core first**, then in both front ends, in the same
+  change. A commit that adds a CLI command without its GUI surface — or the reverse —
+  is incomplete, not a first pass.
+- **Parity is enforced by a test, not by discipline.** The guard is a parity test in
+  `tests/e2e` that enumerates the cobra command tree and the GUI's registered actions
+  and fails when one holds an operation the other does not, so adding a command with no
+  GUI affordance breaks the build. Deliberate exceptions are declared in that test's
+  allow-list with a comment giving the reason, so an exception is a reviewed decision
+  rather than an omission. **Until that test lands** — spec 002 places it in pass 3,
+  alongside the first wired GUI operations — the rule above is binding on the operation
+  set regardless, and parity is checked by hand at review. Do not read the absence of
+  the test as permission to let the two front ends diverge in the meantime.
+- **Parity is about operations, not controls.** The GUI may present an operation
+  differently — a wizard where the CLI takes flags, a checklist where the CLI takes
+  `--auto`. What it may not do is leave the operation unreachable, or offer a
+  destructive path with weaker confirmation than the CLI's.
+- **Security properties are core properties.** Passphrase zeroing, the no-subprocess
+  rule, and the no-secrets-in-logs rule hold in the core and therefore in both front
+  ends. The GUI may not relax them for convenience — no passphrase in a widget that
+  outlives the operation, no secret in a status line or window title.
+
+---
+
 ## Conventions
 
 - Build and lint targets follow `aiq_agent_go`: `##`-comment help, `golangci-lint`
@@ -173,6 +208,35 @@ standalone repository.
   support `--dry-run` where practical.
 - The uninstaller removes everything the installer placed and nothing else. It must
   never remove keys or store data without the user asking; print the command instead.
+
+### Screenshots
+
+`tools/screenshot.sh --all` refreshes the README set into `assets/`. It drives the
+window itself — `angou-gui` takes `--section` and `--scheme`, so the script starts a
+window on the section it wants, grabs it, and stops it again. Nothing is clicked by
+hand, which is the difference between screenshots that track the interface and
+screenshots that quietly go stale.
+
+- **Four images**, one per section that shows a reader something: Store, Encrypt,
+  Doctor, Machine. Appearance and About are left out deliberately — a form of three
+  dropdowns and a page of prose show nothing the text does not already say.
+- **The set is captured in Breeze Dark**, forced by the script. Without that it inherits
+  whatever the person running it last chose in Appearance, and two refreshes on two
+  machines produce differently-coloured images for no reason.
+- **The alt text describes what is actually in the image.** It is the only description a
+  screen-reader user gets, and a stale one is worse than none — check it still matches
+  before committing a new capture. Name the actual rows, states, and colours shown, not
+  the section in the abstract.
+- **Refresh them when the window visibly changes**, in the same commit as the change.
+  A screenshot showing an interface that no longer exists is a documentation bug.
+- `--with-dialog` captures the desktop and crops to the window, for shots where a modal
+  is open: an active-window grab would return the dialog alone on a transparent
+  background.
+- The script verifies it actually has focus before grabbing, and checks the captured
+  aspect ratio against the window's afterwards. Both guards exist because a grab that
+  fires early silently captures the wrong window and writes a plausible-looking PNG —
+  it produced a full-screen image of a portrait monitor the first time it was run. Do
+  not remove them to make the script faster.
 
 ### Release procedure
 

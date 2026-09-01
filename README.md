@@ -594,10 +594,48 @@ being killed part-way through.
 
 ## Usage (GUI)
 
-`angou-gui` browses the store as a tree of the names you gave your files, rather than
-the hashed names on disk. Double-clicking a blob shows it inline when it is text, and
-offers to decrypt it beside the original when it is not. It is a separate program from
-the CLI and is never needed to set a machine up.
+> **Status**: the GUI is under development and is not part of a release yet. What ships
+> today is the prototype — every screen described below is present and navigable, but
+> the operations behind them are not wired up, and it reports as much rather than
+> appearing to act. The CLI is complete and is what this version is for.
+
+`angou-gui` is a desktop front end over the same store. It is built to do everything
+the CLI does — the two are kept in step deliberately, and neither is allowed a
+capability the other lacks. It is a separate program from the CLI and is never needed
+to set a machine up or to recover one.
+
+It is worth having for three things the command line does poorly. The directory scan
+becomes a list you tick, rather than `--auto` taking everything the scanner found or a
+prompt for every file. The `doctor` report becomes a ranked report, so the line saying
+this machine still needs the recovery passphrase no longer reads the same as the line
+naming the store directory. And the listing becomes something you can act on, instead
+of a table you read before retyping a path into a second command.
+
+It is built with Fyne, which draws its own widgets and so looks native on no desktop.
+The mitigation is a set of transcribed color schemes — Breeze Dark, Breeze Light,
+Oxygen Dark, Adwaita Dark, and Adwaita Light — with a font and text-size picker beside
+them, under **Appearance**. Those three settings are the only thing the GUI saves
+between runs; the file holds no store path, no fingerprint, and no secret.
+
+The GUI needs CGO, OpenGL, and a display server. The CLI needs none of those and never
+will, because bootstrapping a bare machine depends on it staying a static binary with
+no runtime dependencies. `install.sh` installs both by default and skips the GUI with a
+note if it cannot be built; `--no-gui` skips it deliberately.
+
+One caveat specific to the GUI: text typed into a field is held in a Go string, which
+cannot be overwritten afterwards. The CLI's terminal read is better in this respect.
+Neither is a guarantee — see **Safety** below.
+
+![The Store section: a sortable table of what the store holds, sorted by path — aws/credentials, db/prod.pgpass, gnupg/secring.gpg, kube/config, notes/recovery-plan.md, ssh/id_ed25519 and its .pub, and vpn/work.ovpn — with size, encoding (armor or binary), age, and the origin each was taken from, one showing "none recorded". A toolbar above offers Encrypt file, Scan directory, Reindex, Prune and Clone; the Decrypt, Extract, Rename and Remove buttons below are greyed out until a row is selected.](assets/screenshot-store.png)
+
+![The Encrypt section: a directory scan of /home/example listing eleven candidates, each with the reason it was flagged — "OpenSSH private key header" for id_rsa and id_ecdsa, "contains a base64 auth field" for .docker/config.json, "name matches netrc", "name matches *credentials*.json". Seven of eleven are ticked; ~/.ssh/known_hosts is left unticked, and ~/.aws/credentials is unticked and disabled with the note "already in the store". Scan is a dry run; Encrypt selected sits apart at the bottom.](assets/screenshot-encrypt.png)
+
+![The Doctor section: findings grouped by subject with a status marker on each row. Store shows the directory, format ANGOU1, eight blobs, and a green tick for an index consistent with the blobs. This machine shows green ticks for a present local key, the KWallet backend, its keyring entry, and a running agent, with the note "This machine opens the store without the recovery passphrase." A superseded-key assertion field sits below the report.](assets/screenshot-doctor.png)
+
+![The Machine section in three parts. Routine: set this machine up, change the machine password, change the recovery passphrase. Session cache: the agent, marked as unnecessary on this machine and there for machines with no keyring, showing a running session with 7m12s remaining and its socket path. Irreversible, with buttons in red: forget this machine, and rotate the store identity — each stating what it costs, including that forgetting loses access if the recovery passphrase is gone.](assets/screenshot-machine.png)
+
+The screenshots are captured by `tools/screenshot.sh --all`, which drives the window
+itself rather than relying on anyone clicking through it.
 
 ## Project layout
 

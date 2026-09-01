@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=angou
+GenericName=Encrypted file store
+Comment=Browse and decrypt an angou store
+Exec=angou-gui %f
+Icon=angou
+Terminal=false
+Categories=Utility;Security;
+MimeType=application/x-angou-blob;
+StartupNotify=true
+# The basename of this file must stay io.ushineko.angou.desktop. Fyne sets the
+# Wayland app_id from the application's unique ID (app.NewWithID in
+# internal/gui), and a Wayland compositor resolves a window's icon by matching
+# that app_id to a desktop file of the same name. Renaming this file to
+# angou.desktop silently costs the taskbar icon on every Wayland session.
+# StartupWMClass covers the X11 and XWayland case, where the match is on
+# WM_CLASS instead.
+StartupWMClass=io.ushineko.angou

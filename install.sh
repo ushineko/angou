@@ -14,20 +14,25 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGNING_KEY="${HOME}/.config/angou/release-signing.asc"
 
 DRY_RUN=0
-WITH_GUI=0
+WITH_GUI=1
 PUBLISH_TO=""
 SET_UP_EXISTING=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
         --with-gui) WITH_GUI=1 ;;
+        --no-gui) WITH_GUI=0 ;;
         --publish-to=*) PUBLISH_TO="${arg#--publish-to=}" ;;
         -h|--help)
             cat <<'USAGE'
-Usage: install.sh [--dry-run] [--with-gui] [--publish-to=STORE]
+Usage: install.sh [--dry-run] [--no-gui] [--publish-to=STORE]
 
   --dry-run             Show what would be installed, change nothing
-  --with-gui            Also build and install angou-gui (needs CGO)
+  --no-gui              Install the CLI only, skipping angou-gui
+
+The desktop GUI is installed by default, along with its desktop entry and icon.
+It needs CGO and a C toolchain; if it will not build, the CLI is still installed
+and the GUI is skipped with a note. The CLI itself is static and needs neither.
   --publish-to=STORE    Also put signed binaries and the installer into STORE,
                         so a machine with no angou can install it from there
 
@@ -109,12 +114,27 @@ run make -C "$REPO_DIR" build-static RELEASE_KEY="$RELEASE_KEY"
 echo "Installing the CLI to ${BIN_DIR} ..."
 run install -Dm755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
 
+# The GUI is installed by default, but a failure to build it must not take the
+# CLI installation down with it. The CLI is the artifact everything else depends
+# on — bootstrap, recovery on a bare machine — and a missing C toolchain is a
+# reason to skip the GUI, not a reason to leave the machine without angou.
 if [ "$WITH_GUI" -eq 1 ]; then
-    echo "Building the desktop browser ..."
-    run make -C "$REPO_DIR" build-gui
-    run install -Dm755 "${REPO_DIR}/angou-gui" "${BIN_DIR}/angou-gui"
-    run install -Dm644 "${REPO_DIR}/packaging/angou.desktop" "${APP_DIR}/angou.desktop"
-    run install -Dm644 "${REPO_DIR}/packaging/angou.svg" "${ICON_DIR}/angou.svg"
+    echo "Building the desktop GUI ..."
+    if [ "$DRY_RUN" -eq 1 ] || make -C "$REPO_DIR" build-gui; then
+        run install -Dm755 "${REPO_DIR}/angou-gui" "${BIN_DIR}/angou-gui"
+        run install -Dm644 "${REPO_DIR}/packaging/io.ushineko.angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop"
+        run install -Dm644 "${REPO_DIR}/packaging/angou.svg" "${ICON_DIR}/angou.svg"
+    else
+        WITH_GUI=0
+        echo
+        echo "The GUI did not build, so it was skipped. The CLI is unaffected and does" >&2
+        echo "everything the GUI does. Building it needs CGO and a C toolchain:" >&2
+        echo "    Debian/Ubuntu: build-essential libgl1-mesa-dev xorg-dev" >&2
+        echo "    Fedora:        gcc mesa-libGL-devel libXi-devel libXcursor-devel libXrandr-devel libXinerama-devel" >&2
+        echo "    Arch:          base-devel libgl libxi libxcursor libxrandr libxinerama" >&2
+        echo "Re-run with --no-gui to skip it without this message." >&2
+        echo
+    fi
 fi
 
 echo "Installing file-type rules ..."

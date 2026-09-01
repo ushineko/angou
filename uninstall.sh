@@ -14,7 +14,7 @@ STATE_DIR="${HOME}/.local/share/angou"
 echo "Removing angou ..."
 
 for f in "${BIN_DIR}/angou" "${BIN_DIR}/angou-gui" \
-         "${APP_DIR}/angou.desktop" "${MIME_DIR}/angou.xml" \
+         "${APP_DIR}/angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop" "${MIME_DIR}/angou.xml" \
          "${ICON_DIR}/angou.svg"; do
     if [ -e "$f" ]; then
         echo "  removing $f"
@@ -31,6 +31,20 @@ command -v update-mime-database >/dev/null 2>&1 && \
     update-mime-database "${HOME}/.local/share/mime" || true
 command -v update-desktop-database >/dev/null 2>&1 && \
     update-desktop-database "${APP_DIR}" || true
+
+# The GUI's appearance preferences are written by the application, not by the
+# installer, so they are not removed here. They hold nothing but a color scheme,
+# a font name, and a text size — no store path, no fingerprint, no secret.
+FYNE_PREFS="${HOME}/.config/fyne/io.ushineko.angou"
+if [ -d "$FYNE_PREFS" ]; then
+    echo
+    echo "The GUI's saved appearance settings are still in:"
+    echo
+    echo "    ${FYNE_PREFS}"
+    echo
+    echo "They hold a color scheme, a font, and a text size, and nothing else."
+    echo "To remove them:  rm -rf ${FYNE_PREFS}"
+fi
 
 echo
 echo "Done."
