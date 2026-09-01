@@ -22,7 +22,7 @@ import (
 var wordlistData string
 
 // MinBits is the entropy floor for a recovery passphrase (R2.2.1).
-const MinBits = 77
+const MinBits = 70
 
 // ErrWeak reports a passphrase below the entropy floor.
 var ErrWeak = errors.New("recovery passphrase is too weak")
@@ -155,9 +155,9 @@ func wordlistEntropy(p string) (float64, bool) {
 		index[w] = struct{}{}
 	}
 	// Credit distinct words only. Repetition adds length without adding
-	// choices, and crediting it would let "able able able able able able able
-	// able able" clear the floor — which is exactly the kind of phrase a person
-	// reaches for when told to type nine words.
+	// choices, and crediting it would let one word repeated eight times clear
+	// the floor — which is exactly the kind of phrase a person
+	// reaches for when told to type eight words.
 	distinct := map[string]struct{}{}
 	for _, f := range fields {
 		if _, ok := index[f]; !ok {

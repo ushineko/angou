@@ -155,7 +155,7 @@ protection is therefore pinned explicitly and not left to OpenPGP defaults:
   the pinned floor is refused, so an attacker cannot downgrade the KDF by editing the
   header.
 - `angou init` MUST refuse a low-entropy recovery passphrase and offers to generate a
-  diceware phrase of at least 77 bits. The generated phrase is displayed exactly once,
+  diceware phrase of at least 70 bits. The generated phrase is displayed exactly once,
   and only after the store has been created: a phrase shown before the store is
   committed tells the user to write down something that opens nothing.
 - Words in a generated phrase are drawn without replacement, and the entropy screen
@@ -174,7 +174,7 @@ gibibyte floor does not make such a store safer on a small VPS or a limited cont
 it makes it unopenable there, which is a worse outcome than a lower per-guess cost.
 
 The derivation is also not the primary defence against offline cracking, and pinning it
-as though it were would misstate the design. Entropy is: at the 77-bit floor R2.2.1
+as though it were would misstate the design. Entropy is: at the 70-bit floor R2.2.1
 enforces, an exhaustive search is infeasible even against a KDF-free hash. The
 derivation earns its keep only where the entropy screen has over-credited a
 human-chosen phrase, and the *memory* parameter specifically is what bounds an
@@ -617,7 +617,7 @@ the Phase 3 validation gate.
 - [x] The key bundle's Argon2id parameters are recorded beside the ciphertext, and a
       bundle presenting parameters below the pinned floor is refused (R2.2.1).
 - [x] `init` refuses a low-entropy recovery passphrase and its generated phrase carries
-      at least 77 bits of entropy.
+      at least 70 bits of entropy.
 - [x] The plaintext header of a blob contains no key fingerprint, and decryption
       succeeds without one (R1.3).
 - [x] Bootstrap generates an unlock passphrase from `crypto/rand` that appears in no

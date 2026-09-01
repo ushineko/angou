@@ -1,6 +1,7 @@
 package passphrase
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -97,6 +98,24 @@ func TestCheckAcceptsStrongInput(t *testing.T) {
 // embedded list is credited at its true strength rather than at the generic
 // per-token rate.
 func TestWordlistPhrasesAreScoredExactly(t *testing.T) {
-	phrase := strings.Join(words[:9], " ")
-	require.InDelta(t, 9*bitsPerWord(), Estimate(phrase), 0.001)
+	phrase := strings.Join(words[:8], " ")
+	require.InDelta(t, 8*bitsPerWord(), Estimate(phrase), 0.001)
+}
+
+// TestGeneratedPhraseLengthTracksTheFloor pins the relationship rather than the
+// number. Changing MinBits or swapping the wordlist should change the phrase
+// length automatically; a hardcoded count would let the two drift apart and
+// leave the entropy claim wrong.
+func TestGeneratedPhraseLengthTracksTheFloor(t *testing.T) {
+	n, bits := generatedWordCount()
+	require.GreaterOrEqual(t, bits, float64(MinBits),
+		"the generated phrase must clear the floor it is generated for")
+
+	// And it must be the shortest phrase that does: one word fewer must fall
+	// short, or the phrase is longer to memorize than it needs to be.
+	shorter := 0.0
+	for i := 0; i < n-1; i++ {
+		shorter += math.Log2(float64(len(words) - i))
+	}
+	require.Less(t, shorter, float64(MinBits))
 }

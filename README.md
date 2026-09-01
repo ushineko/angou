@@ -194,7 +194,7 @@ only thing that opens the store on a machine that has not been set up, and if yo
 it the contents are gone.
 
 If you would rather choose your own, leave off `--generate` and you will be prompted.
-A passphrase that scores below 77 bits is refused rather than accepted with a warning,
+A passphrase that scores below 70 bits is refused rather than accepted with a warning,
 because the store is a file that other people may hold, and a passphrase they can guess
 offline is not a passphrase. The score is a ceiling, not a measurement — angou sees the
 result, not how you chose it — so treat passing as "not obviously weak" rather than as

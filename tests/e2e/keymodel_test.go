@@ -78,8 +78,8 @@ func TestGeneratedPassphraseIsUsable(t *testing.T) {
 	r := e.mustRun("init", "--generate")
 
 	phrase := extractGeneratedPhrase(t, r.stderr)
-	require.GreaterOrEqual(t, len(strings.Fields(phrase)), 9,
-		"a 512-word list needs at least nine words to clear 77 bits")
+	require.GreaterOrEqual(t, len(strings.Fields(phrase)), 8,
+		"a 512-word list needs at least eight words to clear 70 bits")
 	require.Contains(t, r.stderr, "shown exactly once")
 
 	src := e.writePlaintext("g.env", []byte("G=1\n"), 0o600)

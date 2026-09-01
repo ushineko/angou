@@ -62,7 +62,7 @@ type Params struct {
 //
 // The cost is roughly a sixteenth of the attacker's per-guess memory, which
 // bounds how many guesses a given rig runs in parallel. That matters only for a
-// passphrase materially weaker than the entropy floor init enforces: at 77 bits
+// passphrase materially weaker than the entropy floor init enforces: at 70 bits
 // the search is infeasible regardless of the derivation cost, and the derivation
 // is defence in depth against the entropy estimate being wrong about a
 // human-chosen phrase, not the primary control.
