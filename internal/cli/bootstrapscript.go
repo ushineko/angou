@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ushineko/angou/internal/release"
+	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/store"
 )
 
@@ -50,16 +50,5 @@ func writeBootstrapScript(root, fingerprint string) error {
 // detection-after-execution the spec accepts for the installer itself, and it is
 // stated rather than glossed.
 func checkVersionFloor(s *store.Store, version string) error {
-	floor := s.Meta().VersionFloor
-	if floor == "" {
-		return nil
-	}
-	if release.CompareVersions(version, floor) >= 0 {
-		return nil
-	}
-	return fmt.Errorf("this angou is version %s, but %s has had %s installed from it.\n"+
-		"Refusing to bootstrap with an older binary: a validly signed old release is still\n"+
-		"an old release, and replaying one is how write access to a store becomes execution.\n"+
-		"Install the current version and try again",
-		version, s.Root(), floor)
+	return core.CheckVersionFloor(s, version)
 }

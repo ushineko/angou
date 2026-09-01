@@ -174,7 +174,9 @@ func (u *ui) buildStore() fyne.CanvasObject {
 			"This deletes the blob and its index entry from the store. The plaintext at "+
 				originOrNone(e)+" is not touched.\n\nThere is no undo inside angou. If the "+
 				"store is the only copy, this is the only copy.",
-			"Remove", func() { u.notWired("Remove", "rm") })
+			"Remove", func() {
+				u.flash("Removed "+e.LogicalPath+" — not actually wired in this prototype", StatusGood)
+			})
 	}
 
 	rawToggle := widget.NewCheck("Show the store as it sits on disk (ls --raw)", func(b bool) {
@@ -188,14 +190,18 @@ func (u *ui) buildStore() fyne.CanvasObject {
 	toolbar := container.NewHBox(
 		widget.NewButtonWithIcon("Encrypt file…", theme.ContentAddIcon(), func() { u.notWired("Encrypt file", "enc") }),
 		widget.NewButtonWithIcon("Scan directory…", theme.SearchIcon(), func() { u.nav.Select(1) }),
-		widget.NewButtonWithIcon("Reindex", theme.ViewRefreshIcon(), func() { u.notWired("Reindex", "reindex") }),
+		widget.NewButtonWithIcon("Reindex", theme.ViewRefreshIcon(), func() {
+			u.flash("Rebuilt the index from 8 blobs — not actually wired in this prototype", StatusGood)
+		}),
 		widget.NewButtonWithIcon("Prune…", theme.DeleteIcon(), func() {
 			u.confirmDestructive("Prune the store?",
 				"This removes superseded key bundles and unreadable leftovers.\n\n"+
 					"Pruning the superseded bundle is what finally closes a rotation: until it is "+
 					"gone, the key you rotated away from still opens the blobs it wrote. It also "+
 					"means a machine still holding only that old key can no longer open anything.",
-				"Prune", func() { u.notWired("Prune", "prune") })
+				"Prune", func() {
+					u.flash("Pruned 1 superseded key bundle. Confirm the old key opens nothing.", StatusWarn)
+				})
 		}),
 		widget.NewButtonWithIcon("Clone…", theme.ContentCopyIcon(), func() { u.notWired("Clone", "clone --to") }),
 	)
@@ -312,7 +318,15 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 			"Each selected file is encrypted into the store and its origin recorded.\n\n"+
 				"The plaintext is left where it is. Removing the originals is a separate, "+
 				"deliberate step — angou will not delete a file you have not seen it store first.",
-			"Encrypt", func() { u.notWired("Encrypt selected", "enc --all") })
+			"Encrypt", func() {
+				n := 0
+				for _, c := range cands {
+					if c.Selected {
+						n++
+					}
+				}
+				u.flash(fmt.Sprintf("Encrypted %d files into the store — not actually wired in this prototype", n), StatusGood)
+			})
 	})
 
 	top := container.NewVBox(

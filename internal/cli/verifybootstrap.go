@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-
-	"github.com/ushineko/angou/internal/store"
 )
 
 // BootstrapScriptName is the plaintext entrypoint at the store root (R5.5).
@@ -84,18 +82,3 @@ func newVerifyBootstrapCmd() *cobra.Command {
 // and reports a mismatch as a warning (R5.8.1). It never fails the command it
 // was called from: an altered installer does not make the store unreadable, and
 // refusing to read a store because of it would help nobody.
-func warnIfBootstrapDrifted(s *store.Store) {
-	recorded := s.Meta().BootstrapSHA256
-	if recorded == "" {
-		return
-	}
-	raw, err := os.ReadFile(filepath.Join(s.Root(), BootstrapScriptName))
-	if err != nil {
-		return
-	}
-	sum := sha256.Sum256(raw)
-	if hex.EncodeToString(sum[:]) != recorded {
-		fmt.Fprintf(os.Stderr, "angou: WARNING — %s does not match the digest recorded in this store.\n"+
-			"angou: Read it before any machine runs it; see `angou verify-bootstrap`.\n", BootstrapScriptName)
-	}
-}

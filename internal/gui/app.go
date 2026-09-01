@@ -11,11 +11,13 @@ package gui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -46,6 +48,7 @@ type ui struct {
 
 	content *container.Scroll
 	nav     *widget.List
+	flashes *fyne.Container // transient result banners, above the content pane
 }
 
 // Preference keys. Namespaced so a later setting cannot collide with one of
@@ -133,6 +136,7 @@ func Run(o Options) {
 	}
 
 	u.content = container.NewScroll(widget.NewLabel(""))
+	u.flashes = container.NewVBox()
 	secs := sections()
 
 	u.nav = widget.NewList(
@@ -148,7 +152,7 @@ func Run(o Options) {
 	)
 	u.nav.OnSelected = func(i widget.ListItemID) { u.show(secs[i].build(u)) }
 
-	split := container.NewHSplit(u.nav, u.content)
+	split := container.NewHSplit(u.nav, container.NewBorder(u.flashes, nil, nil, nil, u.content))
 	split.SetOffset(0.16)
 
 	u.win.SetContent(container.NewBorder(u.header(), u.statusBar(), nil, nil, split))
@@ -239,6 +243,71 @@ func routeStatus(r UnlockRoute) Status {
 		return StatusWarn
 	}
 	return StatusBad
+}
+
+// flash reports the result of an operation as a banner that fades out on its
+// own.
+//
+// This is the one place motion earns its keep in this window. It carries
+// information — something changed, here, and this is what it was — rather than
+// decorating a transition, and it degrades to nothing if the user looks away.
+// Section changes are deliberately not animated: switching sections is the most
+// frequent thing anyone does here, and animating it would add latency to every
+// navigation in exchange for nothing.
+//
+// Fyne animates properties, not opacity: a widget has no alpha to fade. So the
+// fade is on the banner's own background rectangle, whose colour animates from
+// the status tint to fully transparent. The text is left at full strength for
+// the whole life of the banner, which is the accessible choice anyway — fading
+// text out is harder to read at every intermediate step.
+func (u *ui) flash(text string, st Status) {
+	tint := u.flashTint(st)
+	bg := canvas.NewRectangle(tint)
+	bg.CornerRadius = 2
+
+	label := widget.NewLabel(text)
+	label.Wrapping = fyne.TextWrapWord
+
+	banner := container.NewStack(bg, container.NewPadded(
+		container.NewHBox(marker(st), label)))
+	u.flashes.Add(banner)
+	u.flashes.Refresh()
+
+	transparent := color.NRGBA{R: tint.R, G: tint.G, B: tint.B, A: 0}
+	fade := canvas.NewColorRGBAAnimation(tint, transparent, 1600*time.Millisecond, func(c color.Color) {
+		bg.FillColor = c
+		canvas.Refresh(bg)
+	})
+	fade.Curve = fyne.AnimationEaseIn
+	// Removing the banner is what actually reclaims the space; the colour
+	// animation only makes the removal look intended rather than abrupt.
+	go func() {
+		time.Sleep(1700 * time.Millisecond)
+		fyne.Do(func() {
+			u.flashes.Remove(banner)
+			u.flashes.Refresh()
+		})
+	}()
+	fade.Start()
+}
+
+// flashTint is the banner's starting colour: the status role from the active
+// scheme, at low alpha so text stays readable over it in all five schemes.
+func (u *ui) flashTint(st Status) color.NRGBA {
+	p := paletteByName(u.scheme)
+	var c color.Color
+	switch st {
+	case StatusGood:
+		c = p.positive
+	case StatusWarn:
+		c = p.neutral
+	case StatusBad:
+		c = p.negative
+	default:
+		c = p.selectionBG
+	}
+	r, g, b, _ := c.RGBA()
+	return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 0x4d} //nolint:gosec // 16-bit channels; >>8 fits a byte
 }
 
 // --- small shared widgets -------------------------------------------------
