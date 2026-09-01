@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ushineko/angou/internal/core"
 )
 
 // BootstrapScriptName is the plaintext entrypoint at the store root (R5.5).
-const BootstrapScriptName = "bootstrap.sh"
+// The name lives in internal/core; this alias keeps the call sites here short.
+const BootstrapScriptName = core.BootstrapScriptName
 
 func newVerifyBootstrapCmd() *cobra.Command {
 	var record bool

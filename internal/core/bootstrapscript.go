@@ -1,11 +1,12 @@
-package cli
+package core
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	_ "embed"
 )
 
 //go:embed assets/bootstrap.sh
