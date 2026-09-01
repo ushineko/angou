@@ -66,7 +66,11 @@ func newAgentStartCmd() *cobra.Command {
 			}
 			defer prompt.Zero(identity)
 
+			// NewServer takes its own copy, so this one is wiped straight away
+			// rather than at return: the agent then runs for the whole TTL with
+			// one copy of the key in memory instead of two.
 			server := agent.NewServer(socket, s.Fingerprint(), identity, ttl)
+			prompt.Zero(identity)
 			if err := server.Listen(); err != nil {
 				return err
 			}

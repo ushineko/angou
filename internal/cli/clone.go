@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -43,6 +44,16 @@ func newCloneCmd() *cobra.Command {
 			if _, err := os.Stat(to); err == nil {
 				return fmt.Errorf("%s already exists; clone will not write into it", to)
 			}
+			// A destination inside the source would be created by the walk and
+			// then walked into, copying the clone into itself until the disk
+			// filled.
+			inside, err := isInside(from, to)
+			if err != nil {
+				return err
+			}
+			if inside {
+				return fmt.Errorf("%s is inside %s; clone would copy the store into itself", to, from)
+			}
 			n, err := copyStore(from, to, noBinaries)
 			if err != nil {
 				return err
@@ -63,6 +74,8 @@ func newCloneCmd() *cobra.Command {
 
 func copyStore(from, to string, noBinaries bool) (int, error) {
 	count := 0
+	// Lstat semantics: Walk reports symlinks without following them, which is
+	// what lets the callback refuse them.
 	err := filepath.Walk(from, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -73,6 +86,18 @@ func copyStore(from, to string, noBinaries bool) (int, error) {
 		}
 		if info.IsDir() {
 			return os.MkdirAll(filepath.Join(to, rel), 0o700)
+		}
+		// A symlink in the store is not store content. Following one would let
+		// anyone who can write to a synced store name a local file — an SSH key,
+		// say — and have its contents copied into a directory they may be able
+		// to read (R-9). They are refused rather than skipped, because their
+		// presence means something put them there.
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symlink; refusing to copy it, because following it "+
+				"would read a file outside the store", rel)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file; refusing to copy it", rel)
 		}
 		if noBinaries && isReleaseBinary(rel) {
 			return nil
@@ -101,6 +126,23 @@ func isReleaseBinary(rel string) bool {
 	return ok
 }
 
+// isInside reports whether child resolves beneath parent.
+func isInside(parent, child string) (bool, error) {
+	parentAbs, err := filepath.Abs(parent)
+	if err != nil {
+		return false, fmt.Errorf("resolve %s: %w", parent, err)
+	}
+	childAbs, err := filepath.Abs(child)
+	if err != nil {
+		return false, fmt.Errorf("resolve %s: %w", child, err)
+	}
+	rel, err := filepath.Rel(parentAbs, childAbs)
+	if err != nil {
+		return false, nil //nolint:nilerr // unrelated paths are simply not inside
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+}
+
 func copyFile(src, dst string, mode os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -111,7 +153,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(dst), err)
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode.Perm())
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, mode.Perm())
 	if err != nil {
 		return fmt.Errorf("create %s: %w", dst, err)
 	}

@@ -331,3 +331,92 @@ func fieldAfter(t *testing.T, text, prefix string) string {
 	t.Fatalf("no line starting %q in:\n%s", prefix, text)
 	return ""
 }
+
+// TestInstallerPrefersAReleaseOverAPrerelease covers the ordering the installer
+// has to share with the tool. `sort -V` ranks 0.1.0-dev above 0.1.0, which is
+// backwards, and BSD sort has no -V at all — so the installer does the
+// comparison itself and this pins the result.
+func TestInstallerPrefersAReleaseOverAPrerelease(t *testing.T) {
+	e, _ := releasedStore(t)
+	dir := e.storePath("bootstrap")
+
+	// A newer, non-prerelease build retained alongside the 0.1.0-dev one.
+	for _, suffix := range []string{"", ".sig", ".json"} {
+		copyOver(t, filepath.Join(dir, "angou-linux-amd64-0.1.0-dev"+suffix),
+			filepath.Join(dir, "angou-linux-amd64-0.1.0"+suffix))
+	}
+
+	r := e.runInstaller(t, "")
+	require.Zero(t, r.code, "the installer should succeed:\n%s", r.stderr)
+	require.Contains(t, r.stderr, "installed angou-linux-amd64-0.1.0 to",
+		"the release must be preferred over the pre-release it leads to")
+	require.NotContains(t, r.stderr, "installed angou-linux-amd64-0.1.0-dev to")
+}
+
+// TestOlderBinaryIsRefusedByEveryCommand covers R5.4.2 where it matters. A
+// replayed binary that could still read and write every blob would leave the
+// rollback the floor exists to stop entirely usable; refusing only at bootstrap
+// would close the door after the room had been emptied.
+func TestOlderBinaryIsRefusedByEveryCommand(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	src := e.writePlaintext("f.env", []byte("FIELD=value\n"), 0o600)
+	e.mustRun("enc", "--as", "f.env", src)
+
+	newer := buildVersioned(t, e, "9.9.9")
+	key := filepath.Join(e.work, "signing.asc")
+	e.mustRunNoPassphrase("release", "--new-signing-key", key)
+	dist := filepath.Join(e.work, "dist")
+	mkdirAll(t, dist)
+	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
+	runBinary(t, e, newer, []string{e.recovery}, "release", "--dist", dist, "--signing-key", key)
+
+	for _, args := range [][]string{{"ls"}, {"dec", "f.env"}, {"enc", "--as", "g.env", src}, {"reindex"}} {
+		r := e.run(args...)
+		require.NotZero(t, r.code, "angou %v must refuse to run below the version floor", args)
+		require.Contains(t, r.stderr, "9.9.9")
+		require.Empty(t, r.stdout, "no store content may be produced")
+	}
+}
+
+// TestCloneRefusesADestinationInsideTheStore covers the recursion: the walk
+// creates the destination and then descends into it.
+func TestCloneRefusesADestinationInsideTheStore(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	seedStore(t, e, 2)
+
+	r := e.run("clone", "--to", e.storePath("backup"))
+	require.NotZero(t, r.code, "cloning a store into itself must be refused")
+	require.Contains(t, r.stderr, "into itself")
+	require.NoDirExists(t, e.storePath("backup"))
+}
+
+// TestCloneRefusesToFollowSymlinks covers the exfiltration path. Anyone who can
+// write to a synced store could otherwise name a local file and have its
+// contents copied into the clone.
+func TestCloneRefusesToFollowSymlinks(t *testing.T) {
+	e := newEnv(t)
+	e.initStore()
+	seedStore(t, e, 1)
+
+	bait := filepath.Join(e.work, "private-key")
+	require.NoError(t, os.WriteFile(bait, []byte("PRIVATE MATERIAL\n"), 0o600))
+	require.NoError(t, os.Symlink(bait, e.storePath("aaaaaaaaaaaaaaaaaaaaaaaaab.angou")))
+
+	dest := filepath.Join(e.work, "clone")
+	r := e.run("clone", "--to", dest)
+	require.NotZero(t, r.code, "a symlink in the store must be refused")
+	require.Contains(t, r.stderr, "symlink")
+
+	// And nothing outside the store was read into the copy.
+	if entries, err := os.ReadDir(dest); err == nil {
+		for _, de := range entries {
+			if de.IsDir() {
+				continue
+			}
+			require.NotContains(t, string(readFile(t, filepath.Join(dest, de.Name()))),
+				"PRIVATE MATERIAL")
+		}
+	}
+}

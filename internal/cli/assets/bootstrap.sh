@@ -66,15 +66,60 @@ available_platforms() {
 # An attacker who deletes the newer binaries can still get an older signed one
 # installed here, which is why `angou bootstrap` re-checks the real floor once it
 # can read it, and refuses to proceed on a stale binary.
+#
+# The ordering has to agree with the one angou itself uses, and `sort -V` does
+# not: it ranks 0.1.0-dev above 0.1.0, where angou treats a pre-release as older
+# than the release it leads to. BSD sort, on macOS, has no -V at all. So the
+# comparison is done here, in POSIX shell, rather than delegated.
+
+# version_gt A B -> 0 when A is strictly newer than B.
+# Numeric components are compared as numbers, and a version carrying a
+# pre-release suffix ranks below the same version without one.
+version_gt() {
+    a_num="${1%%-*}"
+    b_num="${2%%-*}"
+    case "$1" in *-*) a_pre="${1#*-}" ;; *) a_pre="" ;; esac
+    case "$2" in *-*) b_pre="${2#*-}" ;; *) b_pre="" ;; esac
+
+    i=1
+    while [ "$i" -le 4 ]; do
+        a_part="$(printf '%s' "$a_num" | cut -d. -f"$i")"
+        b_part="$(printf '%s' "$b_num" | cut -d. -f"$i")"
+        [ -n "$a_part" ] || a_part=0
+        [ -n "$b_part" ] || b_part=0
+        # A non-numeric component makes the comparison meaningless; treat it as 0.
+        case "$a_part" in *[!0-9]*) a_part=0 ;; esac
+        case "$b_part" in *[!0-9]*) b_part=0 ;; esac
+        [ "$a_part" -gt "$b_part" ] && return 0
+        [ "$a_part" -lt "$b_part" ] && return 1
+        i=$((i + 1))
+    done
+
+    # Equal numerically: a release outranks the same version's pre-release.
+    if [ -z "$a_pre" ] && [ -n "$b_pre" ]; then return 0; fi
+    if [ -n "$a_pre" ] && [ -z "$b_pre" ]; then return 1; fi
+    # Both carry a pre-release suffix: order them lexicographically. POSIX sh
+    # has no defined string-greater-than operator, so this asks sort instead.
+    [ "$a_pre" != "$b_pre" ] &&
+        [ "$(printf '%s\n%s\n' "$a_pre" "$b_pre" | sort | head -n 1)" = "$b_pre" ]
+}
+
 newest_binary() {
+    best_name=""
+    best_version=""
     for path in "$BOOTSTRAP_DIR"/angou-"$1"-*; do
         [ -f "$path" ] || continue
         name="$(basename "$path")"
         case "$name" in
             *.sig | *.json) continue ;;
         esac
-        printf '%s\n' "$name"
-    done | sort -V | tail -n 1
+        version="${name#angou-"$1"-}"
+        if [ -z "$best_name" ] || version_gt "$version" "$best_version"; then
+            best_name="$name"
+            best_version="$version"
+        fi
+    done
+    printf '%s' "$best_name"
 }
 
 # --- dependencies ---------------------------------------------------------

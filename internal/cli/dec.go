@@ -26,9 +26,11 @@ func newDecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// The size and digest are metadata about the plaintext, never the
-			// plaintext itself.
-			logf("decrypted %s: %d bytes, sha256 %s", env.Path, env.Size, env.SHA256)
+			// The size is metadata; the digest is not logged. For a
+			// low-entropy secret a digest is a reusable oracle — anyone holding
+			// the log can test guesses against it — which makes it as
+			// disclosing as a fragment of the plaintext would be.
+			logf("decrypted %s: %d bytes", env.Path, env.Size)
 			if out == "" || out == "-" {
 				if _, err := os.Stdout.Write(env.Content); err != nil {
 					return fmt.Errorf("write plaintext to stdout: %w", err)

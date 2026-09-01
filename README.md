@@ -26,8 +26,16 @@ stays where you put it.*
 - [Bootstrapping a new machine](#bootstrapping-a-new-machine)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Usage (CLI)](#usage-cli)
-  - [Not built yet](#not-built-yet)
+- [Using it](#using-it)
+  - [Making a store](#making-a-store)
+  - [Putting things in and getting them out](#putting-things-in-and-getting-them-out)
+  - [Stopping the passphrase prompts](#stopping-the-passphrase-prompts)
+  - [Holding the key for a while](#holding-the-key-for-a-while)
+  - [Setting up a new machine](#setting-up-a-new-machine)
+  - [When something looks wrong](#when-something-looks-wrong)
+  - [Changing what protects the store](#changing-what-protects-the-store)
+  - [Copying a store](#copying-a-store)
+  - [Things worth knowing](#things-worth-knowing)
 - [Usage (GUI)](#usage-gui)
 - [Project layout](#project-layout)
 - [Testing](#testing)
@@ -123,13 +131,23 @@ cd /path/to/store
 ```
 
 It works out your OS and CPU, checks you have `gpg` and tells you how to install it if
-not, asks for your recovery password, checks the signature on the program before
-installing it, and hands over to `angou bootstrap` to finish. Nothing is downloaded;
-everything comes out of the store you just copied.
+not, checks the signature on the program before installing it, and stops. Then run
+`angou bootstrap`, which is the step that asks for your recovery password. Nothing is
+downloaded; everything comes out of the store you just copied.
 
-`gpg` is needed for exactly this one step, because the program that would otherwise
-decrypt itself is the thing being installed. On Arch it is already there — `pacman`
-depends on it. Nothing after this point uses it.
+The installer asks for no password, because the program is not secret — it is published
+software, stored in the clear and signed. What protects it is the signature and a
+refusal to install a version older than one you have already used. Encrypting it would
+have protected nothing and, as it turned out, would not even have worked: `gpg` cannot
+read the key derivation angou uses for the parts that are secret.
+
+`gpg` is needed for exactly this one step, to check that signature, because the program
+that would otherwise do it is the thing being installed. On Arch it is already there —
+`pacman` depends on it. Nothing after this point uses it.
+
+Read `bootstrap.sh` before you run it. It is short and deliberately so, it never
+touches the network, and it is the one part of the store that nothing protects until
+after it has run.
 
 ## Requirements
 
@@ -155,65 +173,228 @@ cd angou
 Installs the `angou` command, the desktop entry, and the file-type rules that let KDE
 recognize a `.angou` blob. Remove it all with `./uninstall.sh`.
 
-## Usage (CLI)
+## Using it
 
-Every command needs to know which store to work on, and needs the recovery
-passphrase to open it. Name the store with `--store`, or set `ANGOU_STORE` once and
-leave it out.
+Every command works on one store. Name it with `--store`, or set `ANGOU_STORE` once
+and leave the flag off:
 
 ```bash
 export ANGOU_STORE=~/Dropbox/angou
+```
 
-angou init                        # create the store and its keypair
-angou init --generate             # ... and let angou choose the passphrase
+### Making a store
 
-angou enc .secrets.env            # encrypt into the store
-angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519
-angou dec work/ssh/id_ed25519     # plaintext to stdout
-angou dec .secrets.env -o /tmp/x  # ... or to one named file
-angou get .secrets.env --dest ~/restored   # rebuild the file under a root
+```bash
+angou init --generate
+```
 
-angou ls                          # what is in the store
-angou ls --long                   # with sizes, modes, and times
+This creates the store, generates its keypair, and prints a recovery passphrase once.
+Write it down before you press anything else. There is no reset: the passphrase is the
+only thing that opens the store on a machine that has not been set up, and if you lose
+it the contents are gone.
+
+If you would rather choose your own, leave off `--generate` and you will be prompted.
+A passphrase that scores below 77 bits is refused rather than accepted with a warning,
+because the store is a file that other people may hold, and a passphrase they can guess
+offline is not a passphrase. The score is a ceiling, not a measurement — angou sees the
+result, not how you chose it — so treat passing as "not obviously weak" rather than as
+approval.
+
+### Putting things in and getting them out
+
+```bash
+angou enc .secrets.env                              # store it under its own name
+angou enc ~/.ssh/id_ed25519 --as work/ssh/id_ed25519  # or a name you choose
+
+angou dec work/ssh/id_ed25519          # plaintext to stdout
+angou dec .secrets.env -o /tmp/env     # or to one named file
+angou get .secrets.env --dest ~/restored   # rebuild it, mode and mtime and all
+
+angou ls                               # what is in there
+angou ls --long                        # with sizes, modes, and times
 angou mv old/path new/path
 angou rm work/ssh/id_ed25519
-angou reindex                     # rebuild the listing from the blobs
 ```
 
-`dec` writes one file's plaintext where you point it. `get` rebuilds the file under a
-directory you name, restoring its permissions and modification time. `get` needs
-`--dest` and has no default, because the stored path decides where the write lands and
-anyone who can write to your store chooses that path; confining it to a root you named
-is what stops a stored path from writing somewhere else.
+`enc` leaves your original file where it is. Deleting it is your decision, and on a
+copy-on-write filesystem or an SSD deleting it is not erasing it.
 
-`enc` leaves your original file alone.
+The name you give a file is the name it keeps. Encrypting the same path again replaces
+that entry rather than adding a second one, so updating a secret is just `enc` again.
+Two files called `.secrets.env` in different projects do not collide, because the whole
+path is the name.
 
-### Not built yet
+`dec` writes one file where you point it. `get` rebuilds it under a directory you name
+and restores its permissions and timestamp. `get` requires `--dest` and has no default:
+the stored path decides where the write lands, anyone who can write to your store
+chooses that path, and confining it to a directory you named is what stops a stored
+path from writing somewhere else on your disk.
 
-The commands below are specified and documented but not implemented. They arrive with
-the keyring, bootstrap, and rotation passes:
+### Stopping the passphrase prompts
 
-```
-angou bootstrap                   # set up a new machine from the store
-angou verify-bootstrap            # has the plaintext installer been altered?
-angou rekey --local               # new machine password; changes nothing else
-angou rekey --identity            # NEW KEYPAIR, re-encrypts everything
-angou passwd                      # change the recovery passphrase
-angou prune --bootstrap --keep 3
-angou doctor --old-key <fingerprint>
-angou release --dist dist/
-angou agent                       # session cache
-angou clone --no-binaries
+Typing the recovery passphrase for every command gets old, and it is not what it is
+for. Set the machine up once:
+
+```bash
+angou bootstrap
 ```
 
-Until the keyring pass lands there is no machine password and no session cache, so
-every command asks for the recovery passphrase and spends about a quarter of a second
-deriving a key from it. That is the headless fallback the design already allows for,
-not a shortcut: nothing weaker guards the store in the meantime.
+That takes the key out of the store, wraps it under a fresh 32-byte machine password,
+and puts that password in your KDE wallet. Afterwards this machine opens the store on
+its own, in about five milliseconds instead of a quarter of a second. You are never
+shown the machine password and never need it.
 
-The derivation needs about 96 MB of memory. angou checks for it, and for any cgroup
-limit on the process, before starting — a container too small to finish the derivation
-is told so rather than being killed part-way through.
+If you delete the wallet entry, this machine can no longer open its local copy and
+nothing local can bring it back — the wallet held the only copy. That is not a
+disaster: run `angou bootstrap --force` with your recovery passphrase and the machine
+is set up again. angou tells you this rather than prompting for something you were
+never given.
+
+`angou bootstrap --forget` undoes it, which is what to run before handing a machine on.
+
+On a machine with no wallet — headless, or not KDE — `bootstrap` says so and changes
+nothing. The store still works there; it just asks for the recovery passphrase.
+
+### Holding the key for a while
+
+```bash
+angou agent start --ttl 10m
+angou agent status
+angou agent stop
+```
+
+The agent keeps the unlocked key behind a socket in your runtime directory so a run of
+commands does not each pay to unlock. It is worth being precise about what this buys
+you: the socket is readable only by you, which keeps out other users of the machine. It
+does not keep out anything else running as **you**. While the agent is up, any process
+under your account can ask it for the key and get it. The short lifetime is the real
+protection here, not the socket permissions, and `agent stop` releases everything
+immediately.
+
+### Setting up a new machine
+
+A store can carry the tool that opens it. From a machine that already works:
+
+```bash
+angou release --new-signing-key ~/angou-release.asc   # once, ever
+make build-all RELEASE_KEY=<the fingerprint it printed>
+angou release --dist dist/ --signing-key ~/angou-release.asc
+```
+
+That puts a binary for each platform into the store, signs each one, and writes
+`bootstrap.sh` beside them. Move the signing key to offline storage afterwards and
+delete it from the machine. It is not the store's key and must never become it: anyone
+who has it can sign a binary that every future bootstrap will accept.
+
+On the new machine, with nothing installed but `gpg`:
+
+```bash
+sh /path/to/store/bootstrap.sh
+angou bootstrap --store /path/to/store
+```
+
+The script detects the platform, checks the binary's signature against a fingerprint
+written into the script itself, installs it, and stops. It asks for no passphrase,
+because the binary is not secret — only signed. It touches the network never.
+
+Read the script before you run it. It is short, and it is the one part of the store
+that nothing protects. Its own signature is checked *after* it has already run, which
+catches a file that changed but cannot tell you the file you just ran was genuine. For
+a machine you are setting up for the first time, compare it against the copy published
+in the repository; that is the only check that happens before rather than after.
+
+### When something looks wrong
+
+```bash
+angou doctor        # what this machine can and cannot do, and why
+```
+
+`doctor` changes nothing and is the right first move when a command fails in a way you
+do not understand. It reports whether the store is there, whether its key bundle is
+usable, whether this machine has a local key, whether the wallet has the matching
+entry, and what the version floor is.
+
+```bash
+angou reindex       # rebuild the listing from the blobs themselves
+```
+
+The listing is a cache and is never the truth. If a sync service leaves a conflicted
+copy or the listing goes missing, `reindex` rebuilds it by reading the files. Getting a
+file by name never needed the listing anyway. If `reindex` reports files it could not
+read, they are usually left over from an interrupted rotation; `angou prune --orphans`
+removes them. It will refuse to remove a file that decrypts but sits under the wrong
+name — that is not debris, and deleting it would destroy the evidence.
+
+```bash
+angou verify-bootstrap   # has the installer in the store been altered?
+```
+
+Run this from a machine you trust, against the store, to notice tampering with the
+script your other machines will run.
+
+### Changing what protects the store
+
+Two different problems, two different commands, and picking the wrong one leaves you
+exposed:
+
+```bash
+angou passwd              # someone may have seen your recovery passphrase
+angou rekey --local       # you want a new machine password on this machine
+angou rekey --identity    # a machine holding the key may be compromised
+```
+
+`passwd` changes what guards the key. No file in the store changes and no other machine
+needs anything done to it.
+
+`rekey --local` changes this machine's password only. Every blob stays byte-identical.
+
+`rekey --identity` is the serious one. It generates a new keypair *and* a new naming
+key, then re-encrypts and renames every file. The renaming matters as much as the
+re-encryption: the names are derived from a key, and leaving that key in place would
+let anyone watching your store keep following each file across snapshots even after the
+keypair changed.
+
+After it finishes, every machine must run `angou bootstrap` again, and you should check
+the rotation was complete:
+
+```bash
+angou doctor --old-key <the old fingerprint it printed>
+```
+
+Do this before `angou prune --bundles`, because pruning removes the old key bundle and
+the check needs it. Once the bundle is gone, angou will tell you the check cannot be
+performed rather than reporting a clean result it did not establish.
+
+One thing `rekey --identity` does not do: it does not un-leak anything. If a machine
+holding the key was compromised, treat every secret the store held as known, and change
+those secrets where they actually live. Rotating the store protects what you put in it
+next. [`docs/compromise-recovery.md`](docs/compromise-recovery.md) is the full runbook.
+
+### Copying a store
+
+```bash
+angou clone --to /media/backup/angou
+angou clone --to /media/backup/angou --no-binaries
+```
+
+A clone opens with the same passphrase and holds the same secrets, so guard it the same
+way. `--no-binaries` omits the platform binaries, which are most of the size; the copy
+still holds everything, it just cannot set up a bare machine on its own.
+
+`clone` refuses a destination inside the store, and refuses to follow a symlink it finds
+there. Neither is fussiness: the first would copy the store into itself until the disk
+filled, and the second would let anyone who can write to a synced store point at a file
+of yours and have its contents copied out.
+
+### Things worth knowing
+
+Every command takes `--verbose` (`-v`), which reports what angou is doing on stderr. It
+never prints a passphrase or the contents of a file.
+
+Opening the store costs about a quarter of a second and 96 MB of memory, once, unless
+the wallet or the agent is doing it for you. angou checks that the memory is available —
+including any container limit on the process — and explains the shortfall rather than
+being killed part-way through.
 
 ## Usage (GUI)
 
@@ -230,32 +411,43 @@ angou/
 ├── cmd/angou-gui/          the desktop browser (not built yet)
 ├── lib/container/          the blob format — readable by other tools
 ├── internal/cli/           the command tree
-├── internal/store/         blob naming, the index, rebuilding it, extraction
+│   └── assets/             the bootstrap installer, as shipped into a store
+├── internal/store/         blob naming, the index, rotation, extraction
 ├── internal/envelope/      the metadata sealed inside each blob
 ├── internal/pgpcrypto/     signing, encryption, and verification
 ├── internal/keybundle/     the key bundle and its Argon2id protection
 ├── internal/passphrase/    generating and screening recovery passphrases
+├── internal/keyring/       the KDE wallet, split by platform
+├── internal/localkey/      this machine's copy of the key
+├── internal/release/       the bootstrap namespace and version ordering
+├── internal/agent/         the session cache
 ├── internal/prompt/        reading a passphrase without echoing or logging it
-├── internal/keyring/       keys, and the KDE wallet (not built yet)
-├── internal/agent/         the session cache (not built yet)
 ├── packaging/              desktop file-type rules, icon, magic
 ├── config/                 pinned linter configuration
 ├── specs/                  design specs
 ├── docs/                   format reference and runbooks
 │   └── compromise-recovery.md
-├── tests/                  test suite
+├── tests/e2e/              the end-to-end suite
 └── validation-reports/     release validation records
 ```
+
 
 ## Testing
 
 ```bash
 make test           # unit tests, fast
 make e2e            # builds the real binary, runs it against throwaway stores
+make e2e-keyring    # the KWallet tests; needs you at the desktop, see below
 make e2e-container  # bootstrap onto a machine with nothing installed
 make lint           # pinned golangci-lint, checksum-verified when installed
 make shellcheck     # the plaintext bootstrap installer
 ```
+
+`make e2e` never touches your wallet. The tests that do are behind their own target,
+because they operate the wallet you keep real secrets in and KWallet offers no way to
+make a throwaway one — opening a wallet that does not exist raises a dialog and waits
+for you. Those tests write an entry named for the run and remove it afterwards, and
+they need a human at the desktop to answer any access prompt.
 
 Testing here is end-to-end by default and barely mocked at all. Most of what this
 program claims is a claim about the built binary rather than about a function inside
@@ -298,27 +490,40 @@ machine" cannot honestly be tested on this one.
 
 ### 0.1.0-dev
 
-- First implementation pass, command line only: the container format, the metadata
-  envelope, keyed blob naming, the store index, and `init`, `enc`, `dec`, `get`, `ls`,
-  `mv`, `rm`, and `reindex`. Payloads are signed as well as encrypted and the signature
-  is verified before any plaintext is returned. The key bundle is held under the
-  recovery passphrase with Argon2id at m=1 GiB, t=4, p=4, and a bundle recording weaker
-  parameters is refused.
-  Extraction is confined to a directory the caller names, using a held directory
-  descriptor rather than a path check, so a symlink planted at any depth cannot
-  redirect a write out of it.
-- The key bundle is protected with Argon2id at m=64 MiB, t=24, p=4 — RFC 9106's
-  configuration for memory-constrained environments, with the pass count raised to keep
-  the cost comparable to a gibibyte-scale one. The memory figure is chosen so a store
-  opens on every machine it syncs to, including small containers, rather than for
-  maximum per-guess cost; the passphrase entropy floor is what makes an exhaustive
-  search infeasible.
-- End-to-end test practice established: 28 tests that build the real binary and drive
-  it as a subprocess against throwaway stores, with a per-run passphrase and a
-  redirected `HOME` the suite refuses to run without.
-- Not yet built: the KDE wallet and the machine password, `bootstrap.sh` and the
-  release-signing chain, rotation, the session cache, and the desktop browser. Design
-  for all of them is complete in spec 001.
+The command line is complete: all seventeen subcommands of spec 001 are implemented,
+and every acceptance criterion in that spec is met. The desktop browser is not started.
+
+- **The format.** A text container whose plaintext header carries only the format and
+  the payload encoding — no filename, no plaintext hash, no key fingerprint. Metadata
+  travels in an envelope inside the encrypted payload. Payloads are signed as well as
+  encrypted, and the signature is verified before any plaintext is returned. Stock
+  `gpg` can decrypt a blob body without angou, which is a recovery guarantee rather
+  than an interoperability nicety, and a test proves it against the real `gpg`.
+- **The store.** Blob names are keyed hashes of the logical path, so a directory
+  listing gives up no filenames even to a dictionary attack. A blob whose name does not
+  match its own envelope is refused, which is what stops one secret being served under
+  another's name. The index is a rebuildable cache and never the truth.
+- **Keys.** The key bundle is held under Argon2id at m=64 MiB, t=24, p=4 — RFC 9106's
+  configuration for memory-constrained environments, with the pass count raised. The
+  memory figure is chosen so a store opens on every machine it syncs to, including
+  small containers, rather than for maximum per-guess cost; the passphrase entropy floor
+  is what makes an exhaustive search infeasible. A bundle recording weaker parameters is
+  refused, and the memory required is checked before it is spent.
+- **Machines.** `bootstrap` wraps the key under a 32-byte machine password held in
+  KWallet, after which commands open the store in milliseconds. The "key present, wallet
+  entry gone" state is explained rather than met with an unanswerable prompt.
+- **Rotation.** `passwd` changes what guards the key; `rekey --local` changes the
+  machine password; `rekey --identity` changes the keypair *and* the naming key,
+  re-encrypting and renaming everything. Rotation is staged and verified before anything
+  live is touched, and an interrupted one leaves the previous store intact.
+- **Bootstrap.** A store can carry signed binaries and a plaintext installer that
+  verifies one against a fingerprint written into the script rather than read from the
+  store — so an attacker who re-signs a binary and swaps the public key is still refused.
+- **The agent.** A session cache with a short lifetime, documented as excluding other
+  users and explicitly not as a boundary against anything running as you.
+- **Testing.** 63 end-to-end tests that build the binary and drive it as a subprocess
+  against throwaway stores, at the parameters users actually get, with a per-run
+  passphrase and a redirected `HOME` the suite refuses to run without.
 
 ## License
 

@@ -16,6 +16,7 @@ import (
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
+	"github.com/ushineko/angou/lib/container"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -75,7 +76,16 @@ func tryUnlockQuietly() (*store.Store, error) {
 		return unlockLocal(dir)
 	}
 	if global.passphraseFD >= 0 {
-		return openWithRecovery(dir)
+		secret, err := prompt.Passphrase(global.passphraseFD, "")
+		if err != nil {
+			return nil, err
+		}
+		defer prompt.Zero(secret)
+		s, err := store.Open(dir, secret)
+		if err != nil {
+			return nil, err
+		}
+		return finishUnlockDiagnostic(s)
 	}
 	return nil, errors.New("no non-interactive route into the store")
 }
@@ -158,7 +168,13 @@ func reportBootstrapNamespace(w *tabwriter.Writer, dir string, s *store.Store) {
 		return
 	}
 	if floor := s.Meta().VersionFloor; floor != "" {
-		report(w, "version floor", floor+" (older binaries are refused)")
+		if err := checkVersionFloor(s, container.Version); err != nil {
+			report(w, "version floor", floor+" — THIS BINARY IS OLDER AND WILL BE REFUSED")
+			report(w, "  this binary", container.Version)
+			report(w, "  to fix", "install the current release; a signed old release is still an old release")
+		} else {
+			report(w, "version floor", floor+" (older binaries are refused)")
+		}
 	} else {
 		report(w, "version floor", "none recorded")
 	}

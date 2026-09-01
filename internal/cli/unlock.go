@@ -10,6 +10,7 @@ import (
 	"github.com/ushineko/angou/internal/localkey"
 	"github.com/ushineko/angou/internal/prompt"
 	"github.com/ushineko/angou/internal/store"
+	"github.com/ushineko/angou/lib/container"
 )
 
 // unlock opens the store by whichever route this machine supports.
@@ -127,6 +128,24 @@ func openWithRecovery(dir string) (*store.Store, error) {
 }
 
 func finishUnlock(s *store.Store) (*store.Store, error) {
+	// The version floor is checked on every unlock, not only in bootstrap.
+	// Checking it there alone would leave the rollback R5.4.2 exists to stop
+	// perfectly usable once the older binary was installed: it could still read
+	// and write every blob, which is the part that matters.
+	if err := checkVersionFloor(s, container.Version); err != nil {
+		return nil, err
+	}
+	return finishUnlockDiagnostic(s)
+}
+
+// finishUnlockDiagnostic does everything finishUnlock does except enforce the
+// version floor.
+//
+// It exists for `doctor`, which is the command someone runs to find out why
+// everything else is refusing. A diagnostic that refuses for the very reason
+// being diagnosed tells the user nothing; doctor reports the floor instead.
+func finishUnlockDiagnostic(s *store.Store) (*store.Store, error) {
+
 	// Opportunistic drift check on every unlock (R5.8.1). A warning, never a
 	// failure: an altered installer does not make the store unreadable.
 	warnIfBootstrapDrifted(s)

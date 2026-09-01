@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +42,13 @@ func TestNoSecretsAtDebugVerbosity(t *testing.T) {
 	require.NotContains(t, logged, e.recovery, "the recovery passphrase must never be logged")
 	require.NotContains(t, logged, strings.TrimSpace(secret), "the plaintext must never be logged")
 	require.NotContains(t, logged, "FIELD=", "no fragment of the plaintext may be logged")
+
+	// The plaintext digest is not logged either. For a low-entropy secret it is
+	// a reusable oracle: anyone holding the log can test guesses against it,
+	// which makes it as disclosing as a fragment of the plaintext.
+	sum := sha256.Sum256([]byte(secret))
+	require.NotContains(t, logged, hex.EncodeToString(sum[:]),
+		"the plaintext digest must not appear in a log path")
 	require.Contains(t, logged, "angou:", "verbose output should actually say something")
 	require.Contains(t, logged, "opened the key bundle", "so the test is exercising the log path")
 }
@@ -109,7 +118,11 @@ func TestOlderBinaryIsRefusedOnceNewerIsInstalled(t *testing.T) {
 
 	// Releasing with the newer build raises the store's floor to 9.9.9.
 	runBinary(t, e, newer, []string{e.recovery}, "release", "--dist", dist, "--signing-key", key)
-	require.Contains(t, e.mustRun("doctor").stdout, "9.9.9")
+	// doctor still works below the floor and says why, rather than refusing for
+	// the very reason someone would be running it.
+	d := e.mustRun("doctor").stdout
+	require.Contains(t, d, "9.9.9")
+	require.Contains(t, d, "THIS BINARY IS OLDER AND WILL BE REFUSED")
 
 	// The ordinary build is older, and bootstrap must refuse it.
 	r := e.run("bootstrap")
