@@ -1,16 +1,16 @@
 package core
 
 import (
+	"crypto/sha256"
+	gobuildinfo "debug/buildinfo"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"runtime"
+	"strings"
 
 	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/pgpcrypto"
@@ -158,7 +158,7 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 		if !ok {
 			continue
 		}
-		if err := stashOne(filepath.Join(dist, de.Name()), bootstrapDir, kind, goos, goarch, signer); err != nil {
+		if err := stashOne(filepath.Join(dist, de.Name()), bootstrapDir, kind, goos, goarch, signer, s.ev); err != nil {
 			return err
 		}
 		stashed++
@@ -209,7 +209,77 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 	return nil
 }
 
-func stashOne(src, bootstrapDir string, kind release.Kind, goos, goarch string, signer *pgpcrypto.Identity) error {
+// verifyArtifactIsThisBuild refuses a binary that was not built from the commit
+// doing the stashing.
+//
+// The metadata beside a stashed artifact is signed, and it records a version and
+// a commit. Those came from the running tool, not from the artifact — so a stale
+// dist/ directory produced signed metadata attesting to a version the bytes did
+// not have: a store holding "angou-linux-amd64-0.2.0" whose binary reported
+// 0.1.4, which the store's own version floor then refused. The signature was
+// valid the whole time. It signs the bytes; it cannot notice that the
+// description beside them is wrong.
+//
+// Go records the revision in the binary itself, so this can be checked without
+// running it — which matters, because running a binary to ask its version means
+// executing an artifact before deciding whether to trust it.
+func verifyArtifactIsThisBuild(src string, ev Events) error {
+	// A build with no commit stamped cannot assert that anything matches it.
+	// That is an unstamped development build, and the honest response is to say
+	// the check did not happen rather than to refuse every artifact or, worse,
+	// to compare against the placeholder and appear to have checked.
+	if currentCommit() == "" || currentCommit() == "unknown" {
+		ev.noticef("angou: this build carries no commit, so %s cannot be checked against it.",
+			filepath.Base(src))
+		return nil
+	}
+
+	info, err := gobuildinfo.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read build information from %s: %w\n"+
+			"Every stashed artifact must identify the build it came from", filepath.Base(src), err)
+	}
+
+	var revision string
+	var dirty bool
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			dirty = setting.Value == "true"
+		}
+	}
+	if revision == "" {
+		return fmt.Errorf("%s carries no VCS revision, so there is no way to tell which build "+
+			"it is.\nBuild it in the repository, without -buildvcs=false", filepath.Base(src))
+	}
+	if !strings.HasPrefix(revision, currentCommit()) {
+		return fmt.Errorf("%s was built from commit %s, but this angou is %s.\n"+
+			"Refusing to stash it: the metadata beside a stashed binary records the version and "+
+			"commit of the tool doing the stashing, so a stale build would be signed under a "+
+			"version it does not have — which is how a store ends up serving a binary its own "+
+			"version floor refuses.\nRebuild first: make build-all",
+			filepath.Base(src), revision[:len(currentCommit())], currentCommit())
+	}
+	if dirty {
+		// Reported, not refused. A commit that does not identify the bytes is
+		// worth knowing about, and it is also the normal state of a working
+		// tree someone is publishing a test release from.
+		ev.noticef("angou: %s was built from a modified working tree, so its recorded commit "+
+			"does not identify it exactly.", filepath.Base(src))
+	}
+	return nil
+}
+
+// currentCommit is the revision this binary was built from, as the Makefile
+// stamped it.
+func currentCommit() string { return buildinfo.Commit }
+
+func stashOne(src, bootstrapDir string, kind release.Kind, goos, goarch string, signer *pgpcrypto.Identity, ev Events) error {
+	if err := verifyArtifactIsThisBuild(src, ev); err != nil {
+		return err
+	}
 	binary, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src, err)

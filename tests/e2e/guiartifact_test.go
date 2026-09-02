@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,10 +51,20 @@ func releasedStoreWithGUI(t *testing.T) *env {
 // guiMarker identifies the stand-in GUI binary in a test's output.
 const guiMarker = "STAND-IN-FOR-THE-DESKTOP-GUI"
 
+// writeMarkedBinary is a stand-in a test can recognise afterwards.
+//
+// The marker is appended rather than substituted: the bytes have to stay a
+// readable Go binary, because release refuses to stash anything whose build it
+// cannot identify. Trailing data does not disturb that — the build information
+// lives in a section, not at the end of the file.
 func writeMarkedBinary(t *testing.T, path, marker string) {
 	t.Helper()
-	script := "#!/bin/sh\necho '" + marker + "'\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o755)) //nolint:gosec // it must be executable
+	writeFakeBinary(t, path)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o755)
+	require.NoError(t, err)
+	_, err = f.WriteString("\n" + marker + "\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 }
 
 func TestReleaseStashesTheGUIAlongsideTheCLI(t *testing.T) {
@@ -195,4 +206,52 @@ func TestBareMachineWithoutAGUISaysSoAndCarriesOn(t *testing.T) {
 	require.Contains(t, r.stderr+r.stdout, "carries no desktop GUI",
 		"it should say why there is no GUI rather than staying silent")
 	require.NoFileExists(t, filepath.Join(e.work, "baremachine", "bin", "angou-gui"))
+}
+
+// TestReleaseRefusesAStaleBuild is the guard behind the mislabelling bug.
+//
+// The metadata beside a stashed artifact records the version and commit of the
+// tool doing the stashing, not of the artifact. A dist/ directory left over from
+// an earlier build was therefore stashed under the current version, signed, and
+// served to another machine — which reported the older version and was refused
+// by the store's own version floor. The signature was valid throughout: it signs
+// the bytes, and cannot notice that the description beside them is wrong.
+func TestReleaseRefusesAStaleBuild(t *testing.T) {
+	requireGPG(t)
+
+	e := newEnv(t)
+	e.initStore()
+	key := filepath.Join(e.work, "signing.asc")
+	e.mustRunNoPassphrase("release", "--new-signing-key", key)
+
+	dist := filepath.Join(e.work, "dist")
+	mkdirAll(t, dist)
+	// A Go binary from some other build: any binary not built from this commit
+	// will do, and the Go toolchain is one that is certainly present.
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go binary to stand in for a foreign build")
+	}
+	copyOver(t, goBin, filepath.Join(dist, "angou-linux-amd64"))
+	require.NoError(t, os.Chmod(filepath.Join(dist, "angou-linux-amd64"), 0o755))
+
+	r := e.run("release", "--dist", dist, "--signing-key", key)
+	require.NotZero(t, r.code, "a binary from another build must not be stashed")
+
+	// Either refusal is the guard working. A binary from a different commit
+	// says so; one built outside a repository — which the Go toolchain's own
+	// binary is — carries no revision at all, and an artifact that cannot say
+	// which build it is cannot be described by metadata claiming to know.
+	require.Truef(t,
+		strings.Contains(r.stderr, "was built from commit") ||
+			strings.Contains(r.stderr, "carries no VCS revision"),
+		"the refusal should say the build could not be confirmed:\n%s", r.stderr)
+
+	// Nothing was stashed under a version it does not have.
+	entries, err := os.ReadDir(e.storePath("bootstrap"))
+	require.NoError(t, err)
+	for _, de := range entries {
+		require.NotContains(t, de.Name(), "angou-linux-amd64-",
+			"the refused artifact must not be in the store")
+	}
 }

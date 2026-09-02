@@ -297,11 +297,27 @@ func CheckVersionFloor(floor, root, version string) error {
 	if release.CompareVersions(version, floor) >= 0 {
 		return nil
 	}
+	// Say how to fix it, not only what is wrong. The machine hitting this has an
+	// old angou and a synced store, and the store is carrying the current
+	// version and an installer for it — so the answer is sitting right there,
+	// and "install the current version" on its own sends someone looking for a
+	// download page.
+	remedy := "Install the current version and try again"
+	if installer := filepath.Join(root, BootstrapScriptName); fileExists(installer) {
+		remedy = "This store carries the current version and an installer for it:\n" +
+			"    sh " + installer + "\n" +
+			"That installs " + floor + " here, after which this command works."
+	}
 	return fmt.Errorf("this angou is version %s, but %s has had %s installed from it.\n"+
 		"Refusing to bootstrap with an older binary: a validly signed old release is still\n"+
 		"an old release, and replaying one is how write access to a store becomes execution.\n"+
-		"Install the current version and try again",
-		version, root, floor)
+		"%s",
+		version, root, floor, remedy)
+}
+
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 func digest(b []byte) string {

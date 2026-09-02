@@ -38,13 +38,19 @@ func releasedStore(t *testing.T) (*env, string) {
 	return e, fingerprint
 }
 
-// writeFakeBinary stands in for a built angou. The bootstrap chain verifies and
-// installs bytes; what those bytes do is not what these tests are about, and a
-// real 7 MB binary per case would make the suite slow for no added confidence.
+// writeFakeBinary stands in for a built angou, using the binary under test.
+//
+// It was a shell script until `angou release` began refusing to stash anything
+// that does not identify the build it came from — which it does because a stale
+// dist/ once produced signed metadata claiming a version the bytes did not have.
+// A stand-in therefore has to be a real Go binary built from this commit, and
+// the suite already has exactly one of those.
 func writeFakeBinary(t *testing.T, path string) {
 	t.Helper()
-	script := "#!/bin/sh\necho 'a stand-in for a built angou'\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o755)) //nolint:gosec // it must be executable
+	bin := os.Getenv(BinEnv)
+	require.NotEmpty(t, bin, "%s is not set", BinEnv)
+	copyOver(t, bin, path)
+	require.NoError(t, os.Chmod(path, 0o755))
 }
 
 func requireGPG(t *testing.T) {
