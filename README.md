@@ -206,8 +206,10 @@ In order to use a pre-existing store on additional systems, use the bootstrap sc
 ```bash
 cd /path/to/store
 ./bootstrap.sh
-``` This will install the included binaries from the publish step (checking the environment
-for suitability) and and check the binary signatures.
+```
+
+This will install the included binaries from the publish step, check the environment for
+suitability, and check the binary signatures.
 
 Afterwards run `angou bootstrap`, which is the step that asks for your recovery password.
 Nothing is downloaded; everything comes out of the store you just copied.
