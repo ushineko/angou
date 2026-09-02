@@ -156,6 +156,13 @@ func looksLikeText(head []byte) bool {
 // looksLikePrivateKey reports whether a file begins with a PEM private-key
 // header. A certificate is not a secret, so a plain "BEGIN CERTIFICATE" does not
 // qualify.
+// looksLikePrivateKey reports whether a file begins with a private-key header.
+//
+// PEM spells it "-----BEGIN RSA PRIVATE KEY-----" and friends; OpenSSH's own
+// format spells it "-----BEGIN OPENSSH PRIVATE KEY-----". Both are matched by
+// looking for the armour opening and the words together, which also covers
+// "ENCRYPTED PRIVATE KEY" — an encrypted key is still a key, and still
+// something its owner would want in the store.
 func looksLikePrivateKey(head []byte) bool {
 	text := string(head)
 	if !strings.Contains(text, "-----BEGIN") {
@@ -313,6 +320,22 @@ func looksSecret(path, name string) (string, bool) {
 	if isTemplate(name) {
 		return "", false
 	}
+	// The header first, before any question about the name.
+	//
+	// A private key is a private key whatever it is called, and the file says so
+	// itself: "-----BEGIN ... PRIVATE KEY-----" is not a guess the way an
+	// extension is. Every name-based rule below missed ~/njv_ssh_key -- outside
+	// .ssh, no id_ prefix, and "key" without a dot in front of it is not the
+	// ".key" extension the PEM rule looks for -- while the first line of the
+	// file identified it beyond doubt.
+	//
+	// This costs a 512-byte read per candidate file. That is the price of
+	// finding keys their owner did not name conventionally, which are exactly
+	// the ones a name-based scan is worst at and the ones most worth finding.
+	if looksLikePrivateKey(readHead(path)) {
+		return "private key header", true
+	}
+
 	parent := filepath.Base(filepath.Dir(path))
 	for _, p := range secretPatterns {
 		if p.dir != "" && parent != p.dir {

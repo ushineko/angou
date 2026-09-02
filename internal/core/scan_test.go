@@ -177,3 +177,58 @@ func TestHumanSize(t *testing.T) {
 	require.Equal(t, "1.0K", HumanSize(1024))
 	require.Equal(t, "1.5M", HumanSize(1024*1024*3/2))
 }
+
+// A private key is a private key whatever it is called.
+//
+// Every name-based rule missed ~/njv_ssh_key: outside .ssh, no id_ prefix, and
+// "key" without a dot in front of it is not the ".key" extension the PEM rule
+// looks for. The file's own first line identified it beyond doubt, and the
+// scanner was not looking at it unless a name had already matched.
+func TestPrivateKeyHeaderBeatsTheName(t *testing.T) {
+	root := t.TempDir()
+
+	keys := map[string]string{
+		// The reported case: a key named however its owner felt like naming it.
+		"njv_ssh_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n",
+		// No hint in the name at all.
+		"backup-2019": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n",
+		// An encrypted key is still a key.
+		"work.bak": "-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFDjBABgkq\n",
+		// A misleading extension must not save it either.
+		"notes.txt": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIA\n",
+	}
+	for name, content := range keys {
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(content), 0o600))
+	}
+
+	found, err := Scan(root)
+	require.NoError(t, err)
+
+	got := map[string]string{}
+	for _, c := range found {
+		got[filepath.Base(c.Path)] = c.Reason
+	}
+	for name := range keys {
+		require.Containsf(t, got, name, "a file whose header says PRIVATE KEY must be found "+
+			"whatever it is named; %q was missed", name)
+	}
+}
+
+// The header rule must not undo the exclusions that stop the scan being noise.
+func TestPrivateKeyHeaderDoesNotOverrideTheExclusions(t *testing.T) {
+	root := t.TempDir()
+
+	// A public key mentions the armour but is never secret.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "id_ed25519.pub"),
+		[]byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 someone@host\n"), 0o644))
+	// Prose about keys is not a key.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "howto.md"),
+		[]byte("# Keys\n\nRun ssh-keygen to make one. The file starts with a BEGIN line.\n"), 0o644))
+	// A certificate is not a private key, whatever it sits beside.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "server.crt"),
+		[]byte("-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgI\n"), 0o644))
+
+	found, err := Scan(root)
+	require.NoError(t, err)
+	require.Empty(t, found, "none of these hold a private key")
+}
