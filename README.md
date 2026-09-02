@@ -634,7 +634,7 @@ One caveat specific to the GUI: text typed into a field is held in a Go string, 
 cannot be overwritten afterwards. The CLI's terminal read is better in this respect.
 Neither is a guarantee — see **Safety** below.
 
-![The Store section: a sortable table of four stored files — demo/credentials, demo/id_ed25519, demo/prod.env and demo/work.ovpn — each with its size, POSIX mode, age, and the path it was encrypted from. A toolbar offers Encrypt file, Scan directory, Refresh, Reindex, Prune and Clone; the Decrypt, Extract, Rename and Remove buttons along the bottom are greyed out until a row is selected. The status bar reads: store, the directory; unlocked by an agent session; agent, session 9m58s remaining.](assets/screenshot-store.png)
+![The Store section: a sortable table of four stored files — demo/credentials, demo/id_ed25519, demo/prod.env and demo/work.ovpn — each with its size, POSIX mode, age, and the path it was encrypted from. A toolbar offers Encrypt file, Scan directory, Refresh, Reindex, Prune and Clone; the Decrypt, Extract, Rename and Remove buttons along the bottom are greyed out until a row is selected. The status bar reads: store, the directory; unlocked by an agent session; and the agent's remaining session time.](assets/screenshot-store.png)
 
 ![The Encrypt section: a scan of a directory listing five candidates, each with the reason it was flagged — "AWS credentials" for .aws/credentials, "netrc credentials" for .netrc, "SSH private key" for both .ssh/id_ecdsa and .ssh/id_rsa, and "environment file" for projects/api/.env. All five are ticked, and the count reads "5 of 5 selected". A .env.example file in the same tree was not flagged. Scan is a dry run; Encrypt selected sits apart at the bottom.](assets/screenshot-encrypt.png)
 
