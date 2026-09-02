@@ -74,11 +74,21 @@ because two front ends over one core drift silently otherwise.
 
 **R1.1** The GUI is built with Fyne (`fyne.io/fyne/v2`).
 
-**R1.2** The choice is recorded with its cost. Fyne draws its own widgets and looks
-native on no platform, including this project's primary desktop. That is accepted in
-exchange for a pure-Go dependency tree, no JavaScript toolchain, no system GTK or Qt at
-build time, and a single self-contained binary — the same properties the CLI was built
-for. See *Alternatives Considered*.
+**R1.2** The choice is recorded with its cost. Fyne draws its own widgets rather than
+using the platform's toolkit, so the window is not a GTK or Qt application and does not
+inherit the user's widget style. That is accepted in exchange for a pure-Go dependency
+tree, no JavaScript toolchain, no system GTK or Qt at build time, and a single
+self-contained binary — the same properties the CLI was built for. See *Alternatives
+Considered*.
+
+**R1.2.1** This requirement first read "looks native on no platform, including this
+project's primary desktop", and that was written before R5A existed. Judged against the
+schemes rather than against the default theme it was too harsh: what a toolkit cannot
+inherit is the widget style, and what it can inherit is the palette, which R5A takes
+from the desktops' own files. The window sits closest on KDE Plasma and GNOME, and the
+honest claim is that rather than a blanket one. The original wording is recorded here
+because a cost accepted in a spec should not be quietly revised away — it was revised
+on evidence, once there was something to look at.
 
 **R1.3** CGO is confined to the GUI. `cmd/angou` continues to build with
 `CGO_ENABLED=0` and to link statically, because spec 001's bootstrap and bare-machine

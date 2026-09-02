@@ -610,10 +610,12 @@ this machine still needs the recovery passphrase no longer reads the same as the
 naming the store directory. And the listing becomes something you can act on, instead
 of a table you read before retyping a path into a second command.
 
-It is built with Fyne, which draws its own widgets and so looks native on no desktop.
-The mitigation is a set of transcribed color schemes — Breeze Dark, Breeze Light,
-Oxygen Dark, Adwaita Dark, and Adwaita Light — with a font and text-size picker beside
-them, under **Appearance**. Those settings and the store directory are all the GUI
+It is built with Fyne, which draws its own widgets rather than using the platform's
+toolkit — so it is not a GTK or Qt application and does not inherit your widget style.
+What it does inherit is your colours: the schemes under **Appearance** are transcribed
+from the desktops' own files, so it sits closest on KDE Plasma (Breeze Dark, Breeze
+Light, Oxygen Dark) and on GNOME (Adwaita Dark, Adwaita Light). There is a font and
+text-size picker beside them. Those settings and the store directory are all the GUI
 saves between runs; the file holds no fingerprint, no passphrase, and nothing out of
 the store itself.
 
@@ -776,10 +778,10 @@ machine from it.
   reads the same as "the store directory is here". And the listing becomes something you
   can act on instead of a table you read before retyping a path into a second command.
 
-  Built with Fyne, which draws its own widgets and so looks native nowhere. The
-  mitigation is a set of colour schemes transcribed from the desktops' own files —
-  Breeze Dark, Breeze Light, Oxygen Dark, Adwaita Dark and Light — with a font and
-  text-size picker beside them.
+  Built with Fyne, which draws its own widgets rather than using the platform's
+  toolkit. The colour schemes are transcribed from the desktops' own files, so it looks
+  best on KDE Plasma — Breeze Dark, Breeze Light, Oxygen Dark — and on GNOME, with
+  Adwaita Dark and Light. A font and text-size picker sits beside them.
 - **Everything moved into `internal/core`.** Both front ends run on it; neither
   reimplements an operation or reaches past it into the store. Two contracts came out of
   it: `Secrets`, so a package that never prompts can still need a passphrase, and
