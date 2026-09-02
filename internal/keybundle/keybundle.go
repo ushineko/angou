@@ -11,9 +11,14 @@
 //	wrapped_key   = AES-256-GCM(wrapping_key, bootstrap_key)
 //	payload       = AES-256-GCM(bootstrap_key, identity_export)
 //
-// The passphrase never encrypts the identity directly; it wraps a random 32-byte
-// bootstrap key which does the actual encryption, so rotating the passphrase
-// (`angou passwd`) rewrites only the wrap.
+// The passphrase never encrypts the identity directly. It wraps a random 32-byte
+// bootstrap key, and that key encrypts the identity, so the Argon2id derivation
+// guards a 256-bit random value rather than the identity itself.
+//
+// Rotating the passphrase writes a whole new bundle: RewrapRecovery calls Seal,
+// which mints a fresh bootstrap key and re-encrypts the payload under it. What
+// stays put is everything outside this file — no blob is touched and no other
+// machine is affected, because the identity inside the payload is unchanged.
 //
 // The bundle is deliberately not an OpenPGP message. R5.2.1 establishes that
 // stock gpg cannot read an Argon2-protected message at all — Argon2 is S2K mode
