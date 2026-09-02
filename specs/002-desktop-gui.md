@@ -97,6 +97,21 @@ a bare machine is still recovered by a static binary that needs nothing — whic
 the original form of this requirement was protecting. The GUI living in the namespace
 does not change that; requiring it would.
 
+**R2.2.3** `bootstrap.sh` installs the GUI when the store carries one for the machine's
+platform, together with a desktop entry and the icon — the same three files `install.sh`
+places. It is a bonus, never a dependency: the CLI is installed first and nothing about
+the GUI step may fail the run, because a store with no GUI for this platform is the
+normal case rather than an error. The GUI is verified against the release key to the
+same standard as the CLI; being optional does not make a binary installed from a store
+exempt.
+
+**R2.2.4** The icon is substituted into the installer when it is written, from the
+single embedded copy in `internal/core/assets/`. The script is signed and verified
+before it runs, so anything inside it is covered by that signature; a companion file
+beside it would be one more artifact to verify, for an icon. The GUI draws its own
+window icon from the same bytes, so a machine that installed from a store and one that
+installed from the repository show the same thing.
+
 **R2.2.1** The GUI is stashed for the host platform only. It needs CGO, so cross-
 compiling it would need a C toolchain per target, while the CLI cross-compiles with
 `CGO_ENABLED=0` for all four. A store therefore carries the CLI for every platform and

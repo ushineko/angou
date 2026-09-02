@@ -15,6 +15,23 @@ var bootstrapTemplate string
 // fingerprintPlaceholder is substituted when the script is written into a store.
 const fingerprintPlaceholder = "__RELEASE_KEY_FINGERPRINT__"
 
+// iconPlaceholder is substituted with the application icon, so the installer can
+// give a bootstrapped GUI a real taskbar icon rather than a generic one.
+//
+// Substituted rather than carried as a separate file in the store: the script is
+// signed and verified before it runs, so anything inside it is covered by that
+// signature. A companion file beside it would be one more artifact to verify,
+// for an icon.
+const iconPlaceholder = "__ANGOU_ICON_SVG__"
+
+//go:embed assets/angou.svg
+var iconSVG []byte
+
+// IconSVG is the application icon. The GUI draws its window and taskbar icon
+// from this, and `angou release` writes it into the installer, so there is one
+// embedded copy rather than one per consumer.
+func IconSVG() []byte { return iconSVG }
+
 // writeBootstrapScript renders the installer into the store root with the
 // release-signing fingerprint baked in.
 //
@@ -29,6 +46,7 @@ func writeBootstrapScript(root, fingerprint string) error {
 			"or create a key with `angou release --new-signing-key <path>`", BootstrapScriptName)
 	}
 	rendered := strings.ReplaceAll(bootstrapTemplate, fingerprintPlaceholder, fingerprint)
+	rendered = strings.ReplaceAll(rendered, iconPlaceholder, strings.TrimRight(string(iconSVG), "\n"))
 	path := filepath.Join(root, BootstrapScriptName)
 	if err := os.WriteFile(path, []byte(rendered), 0o755); err != nil { //nolint:gosec // an installer must be executable
 		return fmt.Errorf("write %s: %w", BootstrapScriptName, err)

@@ -194,6 +194,24 @@ verify_signature() {
     return "$result"
 }
 
+newest_gui() {
+    best_name=""
+    best_version=""
+    for path in "$BOOTSTRAP_DIR"/angou-gui-"$1"-*; do
+        [ -f "$path" ] || continue
+        name="$(basename "$path")"
+        case "$name" in
+            *.sig | *.json) continue ;;
+        esac
+        version="${name#angou-gui-"$1"-}"
+        if [ -z "$best_name" ] || version_gt "$version" "$best_version"; then
+            best_name="$name"
+            best_version="$version"
+        fi
+    done
+    printf '%s' "$best_name"
+}
+
 verify_binary() {
     binary="$1"
     key="$BOOTSTRAP_DIR/release-key.asc"
@@ -231,6 +249,64 @@ verify_binary "$binary"
 mkdir -p "$INSTALL_DIR"
 install -m 755 "$binary" "$INSTALL_DIR/angou"
 note "installed $binary_name to $INSTALL_DIR/angou"
+
+# The desktop GUI, when the store carries one for this platform.
+#
+# Strictly a bonus. Recovery is the CLI's job and has already happened by this
+# point, so nothing below may fail the install: a store with no GUI for this
+# platform is the normal case, not an error. The GUI also cannot be
+# cross-compiled, so a store carries it for fewer platforms than the CLI.
+gui_name="$(newest_gui "$platform")"
+if [ -n "$gui_name" ]; then
+    gui="$BOOTSTRAP_DIR/$gui_name"
+    # Verified to the same standard as the CLI. A binary installed from a store
+    # is a binary that will run on this machine, and being optional does not
+    # make it exempt.
+    verify_binary "$gui"
+    install -m 755 "$gui" "$INSTALL_DIR/angou-gui"
+    note "installed $gui_name to $INSTALL_DIR/angou-gui"
+
+    # A desktop entry, so the GUI is launchable from a menu rather than only by
+    # name. The basename must match the Wayland app_id angou-gui sets from its
+    # application ID, or the taskbar shows a generic icon and no name.
+    apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    if mkdir -p "$apps" 2>/dev/null; then
+        cat > "$apps/io.ushineko.angou.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=angou
+GenericName=Encrypted file store
+Comment=Encrypt sensitive files into a portable, syncable store
+Exec=$INSTALL_DIR/angou-gui
+Icon=angou
+Terminal=false
+Categories=Utility;Security;
+StartupNotify=true
+StartupWMClass=io.ushineko.angou
+DESKTOP
+        note "wrote a desktop entry to $apps/io.ushineko.angou.desktop"
+    fi
+
+    # The icon, so the entry above resolves to something rather than a generic
+    # placeholder. Its name must match the Icon= key.
+    icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
+    if mkdir -p "$icons" 2>/dev/null; then
+        cat > "$icons/angou.svg" <<'ICON'
+__ANGOU_ICON_SVG__
+ICON
+        note "wrote the icon to $icons/angou.svg"
+    fi
+
+    # Refresh the desktop's caches where the tools exist. Absent on a bare
+    # machine, which is the case this whole script is for, so their absence is
+    # not worth mentioning.
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" 2>/dev/null
+    command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+        gtk-update-icon-cache -f -t "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" 2>/dev/null
+    true
+else
+    note "this store carries no desktop GUI for $platform; the CLI does everything it does"
+fi
 
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;

@@ -148,3 +148,51 @@ func TestRetentionKeepsTheCLIWhenGUIsAccumulate(t *testing.T) {
 	}
 	require.Equal(t, 2, guis, "retention must keep exactly --keep GUI builds per platform")
 }
+
+// TestBareMachineAlsoInstallsTheGUIWhenPresent: the GUI is a bonus the
+// installer picks up, never something recovery waits for. When the store has one
+// for this platform it arrives with a desktop entry and an icon, the same three
+// files install.sh places.
+func TestBareMachineAlsoInstallsTheGUIWhenPresent(t *testing.T) {
+	e := releasedStoreWithGUI(t)
+
+	r := e.runInstaller(t, "")
+	if r.code != 0 {
+		t.Skipf("installer exited %d on this platform:\n%s", r.code, r.stderr)
+	}
+
+	home := filepath.Join(e.work, "baremachine")
+	gui := filepath.Join(home, "bin", "angou-gui")
+	require.FileExists(t, gui, "the GUI should be installed when the store carries one")
+	require.Contains(t, string(readFile(t, gui)), guiMarker)
+
+	// The basename has to match the Wayland app_id the GUI sets, or the taskbar
+	// shows a generic icon and no name.
+	desktop := filepath.Join(home, ".local", "share", "applications", "io.ushineko.angou.desktop")
+	require.FileExists(t, desktop)
+	entry := string(readFile(t, desktop))
+	require.Contains(t, entry, "StartupWMClass=io.ushineko.angou")
+	require.Contains(t, entry, filepath.Join(home, "bin", "angou-gui"),
+		"the entry must point at the binary it just installed, not a name on PATH")
+
+	icon := filepath.Join(home, ".local", "share", "icons", "hicolor", "scalable", "apps", "angou.svg")
+	require.FileExists(t, icon, "the entry's Icon= key must resolve to something")
+	require.Contains(t, string(readFile(t, icon)), "<svg",
+		"the icon should be the drawing, not an unsubstituted placeholder")
+	require.NotContains(t, string(readFile(t, icon)), "__ANGOU_ICON_SVG__")
+}
+
+// TestBareMachineWithoutAGUISaysSoAndCarriesOn: a store with no GUI for this
+// platform is the normal case. Recovery must not treat it as a failure.
+func TestBareMachineWithoutAGUISaysSoAndCarriesOn(t *testing.T) {
+	e, _ := releasedStore(t) // CLI only
+
+	r := e.runInstaller(t, "")
+	if r.code != 0 {
+		t.Skipf("installer exited %d on this platform:\n%s", r.code, r.stderr)
+	}
+	require.FileExists(t, e.installedBinary(), "the CLI must install regardless")
+	require.Contains(t, r.stderr+r.stdout, "carries no desktop GUI",
+		"it should say why there is no GUI rather than staying silent")
+	require.NoFileExists(t, filepath.Join(e.work, "baremachine", "bin", "angou-gui"))
+}
