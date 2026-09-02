@@ -37,3 +37,24 @@ func TestZeroLeavesNoTrailingPlaintext(t *testing.T) {
 	require.False(t, bytes.Contains(buf, []byte("a")), "old bytes survived the wipe")
 	require.False(t, bytes.Contains(buf, []byte("b")), "new bytes survived the wipe")
 }
+
+// TestSectionNamesNeedsNoApp: the flag help lists these while parsing flags,
+// before there is a Fyne app to construct a theme icon against. Asking for one
+// then made `angou-gui --version` print seven Fyne errors before its answer.
+//
+// This test would not catch that on its own — the logging is a side effect, not
+// a failure — so it asserts the thing underneath: the names are available
+// without touching the section table, and they still agree with it.
+func TestSectionNamesNeedsNoApp(t *testing.T) {
+	names := SectionNames()
+	require.NotEmpty(t, names)
+	require.Equal(t, []string{"Store", "Encrypt", "Doctor", "Machine", "Release", "Appearance", "About"}, names)
+
+	// Every advertised name must have a section behind it. sections() walks
+	// these titles, so a name with no builder would be offered by --section and
+	// by the parity test while drawing nothing.
+	for _, n := range names {
+		require.Containsf(t, sectionBuilders(), n, "%q is advertised but has no section", n)
+	}
+	require.Len(t, sectionBuilders(), len(names), "a section exists that the navigation never shows")
+}

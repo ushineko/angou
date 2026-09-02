@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.1.4
+**Version**: 0.2.0
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -733,6 +733,49 @@ machine" cannot honestly be tested on this one.
   as a backstop, not as a plan.
 
 ## Changelog
+
+### 0.2.0
+
+- **A desktop GUI**, `angou-gui`, over the same store. It does everything the CLI does,
+  and a test fails the build if either front end grows an operation the other lacks. It
+  is a separate binary: the CLI stays static and CGO-free, because bootstrapping a bare
+  machine depends on that and the GUI needs OpenGL and a display server.
+
+  It exists for the three things a command line does worst. The directory scan becomes a
+  list you tick rather than `--auto` taking everything the scanner found. The `doctor`
+  report becomes ranked, so "this machine still needs the recovery passphrase" no longer
+  reads the same as "the store directory is here". And the listing becomes something you
+  can act on instead of a table you read before retyping a path into a second command.
+
+  Built with Fyne, which draws its own widgets and so looks native nowhere. The
+  mitigation is a set of colour schemes transcribed from the desktops' own files —
+  Breeze Dark, Breeze Light, Oxygen Dark, Adwaita Dark and Light — with a font and
+  text-size picker beside them.
+- **Everything moved into `internal/core`.** Both front ends run on it; neither
+  reimplements an operation or reaches past it into the store. Two contracts came out of
+  it: `Secrets`, so a package that never prompts can still need a passphrase, and
+  `Decider`, which makes `--overwrite`, `--auto` and the GUI's dialogs one mechanism
+  rather than three. The CLI's output is unchanged, byte for byte, and
+  `tools/regress.sh` is what holds it there — it diffs the built binary against a
+  previous commit's, because the test suite asserts what someone thought to assert and
+  the first slice of this refactor reordered two `--verbose` lines with every test still
+  green.
+- **The scan finds private keys by their header, not only by their name.** A key called
+  `njv_ssh_key` was missed by every rule — outside `.ssh`, no `id_` prefix, and "key"
+  without a dot in front of it is not the `.key` extension — while its first line said
+  `-----BEGIN OPENSSH PRIVATE KEY-----`. That check existed and was only ever used to
+  confirm a name that had already matched. This is the case a name-based scan is worst
+  at and the one most worth finding: anyone naming keys conventionally was already
+  covered.
+- **The store can carry the GUI, and a bootstrap installs it** with its desktop entry
+  and icon when one is there for that platform. Never a dependency: the CLI is installed
+  first and nothing about the GUI step can fail a recovery. The GUI cannot be
+  cross-compiled, so a store holds the CLI for every platform and the GUI only for those
+  someone has built on.
+- `angou release` reports where a signing key is when one exists, and the GUI prefills
+  the path, but neither signs with a key you did not name. Which key signs a release
+  decides which binaries every future bootstrap trusts, and finding a file is not the
+  same as choosing one.
 
 ### 0.1.4
 

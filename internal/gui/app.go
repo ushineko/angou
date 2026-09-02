@@ -115,19 +115,64 @@ func (u *ui) applyAppearance() {
 	})
 }
 
-func sections() []section {
-	return []section{
-		{"Store", theme.StorageIcon(), (*ui).buildStore},
-		{"Encrypt", theme.ContentAddIcon(), (*ui).buildEncrypt},
-		{"Doctor", theme.InfoIcon(), (*ui).buildDoctor},
-		{"Machine", theme.ComputerIcon(), (*ui).buildMachine},
-		{"Release", theme.DownloadIcon(), (*ui).buildRelease},
-		{"Appearance", theme.ColorPaletteIcon(), (*ui).buildAppearance},
-		{"About", theme.HelpIcon(), func(u *ui) fyne.CanvasObject {
+// sectionTitles is the navigation in order.
+//
+// The order and the names live here, apart from the icons, because a theme icon
+// cannot be constructed before an app exists: asking for one first makes Fyne
+// log "Attempt to access current Fyne app when none is started", which is what
+// `angou-gui --version` printed seven times, since the flag help lists these.
+var sectionTitles = []string{
+	"Store", "Encrypt", "Doctor", "Machine", "Release", "Appearance", "About",
+}
+
+// sectionBuilders is what each section is made of. sections() walks
+// sectionTitles and looks each one up here, so a title with no builder is a
+// missing section rather than a silently different list from the one --section
+// and the capture script are told about.
+// A function rather than a package variable: the builders reach back to
+// sections() when a section rebuilds itself, and Go reports that as an
+// initialization cycle in a package-level map.
+func sectionBuilders() map[string]struct {
+	icon  func() fyne.Resource
+	build func(*ui) fyne.CanvasObject
+} {
+	return map[string]struct {
+		icon  func() fyne.Resource
+		build func(*ui) fyne.CanvasObject
+	}{
+		"Store":      {theme.StorageIcon, (*ui).buildStore},
+		"Encrypt":    {theme.ContentAddIcon, (*ui).buildEncrypt},
+		"Doctor":     {theme.InfoIcon, (*ui).buildDoctor},
+		"Machine":    {theme.ComputerIcon, (*ui).buildMachine},
+		"Release":    {theme.DownloadIcon, (*ui).buildRelease},
+		"Appearance": {theme.ColorPaletteIcon, (*ui).buildAppearance},
+		"About": {theme.HelpIcon, func(u *ui) fyne.CanvasObject {
 			return u.buildAbout(u.version, buildinfo.Commit)
 		}},
 	}
 }
+
+func sections() []section {
+	builders := sectionBuilders()
+	out := make([]section, 0, len(sectionTitles))
+	for _, title := range sectionTitles {
+		b, ok := builders[title]
+		if !ok {
+			continue // a title with no builder draws nothing; see SectionNames
+		}
+		out = append(out, section{title: title, icon: b.icon(), build: b.build})
+	}
+	return out
+}
+
+// SectionNames lists the navigation entries, for a capture script to iterate.
+//
+// Reads the titles rather than building the sections: this is called while
+// parsing flags, before there is an app to hang an icon on.
+func SectionNames() []string { return append([]string(nil), sectionTitles...) }
+
+// SchemeNames lists the colour schemes, for the same reason.
+func SchemeNames() []string { return paletteNames() }
 
 // Options configure a run. Section and Scheme exist so a capture script can
 // deep-link into the window: refreshing the README set otherwise means clicking
@@ -257,20 +302,6 @@ func sectionIndex(secs []section, name string) int {
 	return 0
 }
 
-// SectionNames lists the navigation entries, for a capture script to iterate.
-func SectionNames() []string {
-	names := make([]string, 0)
-	for _, s := range sections() {
-		names = append(names, s.title)
-	}
-	return names
-}
-
-// SchemeNames lists the colour schemes, for the same reason.
-func SchemeNames() []string { return paletteNames() }
-
-// refresh rebuilds the current section, so a view showing store contents picks
-// up what an operation just changed. Called on the UI thread.
 // rebuild redraws the whole window, including the status bar, which names the
 // store. refresh alone only replaces the content pane.
 func (u *ui) rebuild() {
@@ -281,6 +312,8 @@ func (u *ui) rebuild() {
 	u.refresh()
 }
 
+// refresh rebuilds the current section, so a view showing store contents picks
+// up what an operation just changed. Called on the UI thread.
 func (u *ui) refresh() {
 	secs := sections()
 	if u.current >= 0 && u.current < len(secs) {
