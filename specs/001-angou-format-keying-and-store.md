@@ -1,8 +1,22 @@
 # 001 — angou: container format, key model, store layout, and bootstrap
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
-Implementation is proceeding in passes.
+Closed at v0.2.1. All 56 acceptance criteria are met, and the five implementation passes
+below delivered the whole of R1 through R8. The status line had been left at INCOMPLETE
+after the last pass, which is a bookkeeping lapse rather than outstanding work: the text
+below already recorded that the criteria were met.
+
+Two criteria remain met in a narrower form than their wording suggests, recorded here
+rather than glossed — see the passes below for both. They are narrowings, not gaps, and
+closing this spec does not close them.
+
+The operations moved into `internal/core` under spec 002 so that the CLI and the GUI
+could share them. Nothing here changed behaviour: `tools/regress.sh` compares the built
+binary's output against a previous commit's, and the e2e suite covering this spec passed
+throughout without a test being altered.
+
+Implementation proceeded in passes.
 
 Pass 1 covered the container format, the metadata envelope, the recovery-passphrase
 half of the key model, store addressing, the index, and the `init`, `enc`, `dec`,
