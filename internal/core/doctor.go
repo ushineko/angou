@@ -28,6 +28,7 @@ import (
 // facts. Passing NoSecrets is correct and normal: the report is smaller, not
 // wrong.
 func Doctor(dir string, secrets Secrets, ev Events) Report {
+	dir = ExpandPath(dir)
 	var r Report
 
 	r.add("Store", Finding{Label: "store directory", Value: dir})
@@ -210,6 +211,7 @@ func trimCause(err error) string {
 // than an empty list, because a clean result must not be assumed from a check
 // that did not run.
 func AssertOldKeyDead(dir, fingerprint string, secrets Secrets) ([]string, error) {
+	dir = ExpandPath(dir)
 	fingerprint = strings.ToUpper(strings.ReplaceAll(fingerprint, " ", ""))
 
 	secret, err := secrets.Recovery("Recovery passphrase for the superseded key bundle: ")

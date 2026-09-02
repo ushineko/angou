@@ -26,6 +26,7 @@ import (
 // someone plant a binary the other machines install and run, which is why the
 // command that writes it also says to move it offline.
 func GenerateSigningKey(path string) error {
+	path = ExpandPath(path)
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("%s already exists; refusing to overwrite a signing key", path)
 	}
@@ -113,6 +114,7 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 		return errors.New("a directory of built binaries is required")
 	}
 
+	signingKeyPath, dist = ExpandPath(signingKeyPath), ExpandPath(dist)
 	raw, err := os.ReadFile(signingKeyPath) //nolint:gosec // the path is the user's own argument
 	if err != nil {
 		return fmt.Errorf("read signing key: %w", err)

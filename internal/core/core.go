@@ -28,6 +28,9 @@ package core
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/ushineko/angou/internal/keyring"
 	"github.com/ushineko/angou/internal/passphrase"
@@ -96,6 +99,31 @@ func (e Events) notice(msg string) {
 
 func (e Events) noticef(format string, args ...any) {
 	e.notice(fmt.Sprintf(format, args...))
+}
+
+// ExpandPath resolves a leading ~ to the user's home directory.
+//
+// A shell does this before angou sees the argument, but only when the tilde is
+// unquoted — `--store '~/store'` reaches us literally and creates a directory
+// actually named "~". The GUI has no shell at all, so a path typed into a field
+// always arrives this way, and a store called ~/Dropbox/angou would be created
+// inside whatever directory the window happened to be launched from.
+//
+// "~user" is left alone. Resolving another user's home means consulting the
+// password database, and a path that silently resolves to someone else's home
+// directory is a worse outcome than one that does not resolve at all.
+func ExpandPath(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	return filepath.Join(home, p[2:])
 }
 
 // ValidateKeyringBackend checks the configured keyring backend name before any

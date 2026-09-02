@@ -63,6 +63,7 @@ func (r Route) String() string {
 // has been bootstrapped and the only route where no keyring backend exists
 // (spec 001 R2.5).
 func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
+	dir = ExpandPath(dir)
 	s, route, err := open(dir, secrets, ev)
 	if err != nil {
 		return nil, err
@@ -89,6 +90,7 @@ func Open(dir string, secrets Secrets, ev Events) (*Session, error) {
 // everything else is refusing. A diagnostic that refuses for the very reason
 // being diagnosed tells the user nothing; doctor reports the floor instead.
 func OpenDiagnostic(dir string, secrets Secrets, ev Events) (*Session, error) {
+	dir = ExpandPath(dir)
 	s, route, err := open(dir, secrets, ev)
 	if err != nil {
 		return nil, err
@@ -169,6 +171,7 @@ func openFromAgent(dir string) (*store.Store, error) {
 // user has to know about, and R2.4 requires the tool to say so rather than issue
 // a passphrase prompt the user cannot answer.
 func OpenLocal(dir string, ev Events) (*store.Store, error) {
+	dir = ExpandPath(dir)
 	fingerprint, err := localkey.Fingerprint(dir)
 	if err != nil {
 		return nil, err
@@ -247,6 +250,7 @@ func finish(s *store.Store, ev Events) {
 // confusing, and a diagnostic that stops to ask for a passphrase is a worse
 // diagnostic.
 func OpenQuietly(dir string, secrets Secrets, ev Events) (*store.Store, error) {
+	dir = ExpandPath(dir)
 	if localkey.Exists(dir) {
 		s, err := OpenLocal(dir, ev)
 		if err != nil {

@@ -19,7 +19,7 @@ import (
 // anything is asked: prompting for a "new recovery passphrase" and only then
 // reporting that the store already exists reads as though the store is about to
 // be replaced, which is alarming and wrong.
-func StoreExists(dir string) bool { return store.Exists(dir) }
+func StoreExists(dir string) bool { return store.Exists(ExpandPath(dir)) }
 
 // Init creates a store and its identity keypair.
 //
@@ -28,6 +28,7 @@ func StoreExists(dir string) bool { return store.Exists(dir) }
 // this fails — and it does fail, on a full disk, an unwritable directory, or a
 // machine without the memory for the derivation.
 func Init(dir string, recovery []byte, ev Events) (*Session, error) {
+	dir = ExpandPath(dir)
 	s, err := store.Init(dir, recovery)
 	if err != nil {
 		return nil, err
@@ -153,6 +154,7 @@ type ForgetResult struct {
 // ForgetMachine removes this machine's local key and its keyring entry,
 // returning the machine to the recovery passphrase.
 func ForgetMachine(dir string) (ForgetResult, error) {
+	dir = ExpandPath(dir)
 	if !localkey.Exists(dir) {
 		return ForgetResult{HadKey: false}, nil
 	}
@@ -190,7 +192,7 @@ func OpenWithExportedIdentity(dir string, exported []byte, ev Events) (*Session,
 }
 
 // HasLocalKey reports whether this machine holds a local key for the store.
-func HasLocalKey(dir string) bool { return localkey.Exists(dir) }
+func HasLocalKey(dir string) bool { return localkey.Exists(ExpandPath(dir)) }
 
 // RotateLocalPassword replaces this machine's unlock passphrase and the local
 // key it protects. The store is untouched and no other machine is affected.

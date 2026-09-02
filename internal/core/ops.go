@@ -106,6 +106,7 @@ func (s *Session) Get(path string) (envelope.Envelope, error) {
 // will not traverse a symlink to leave it: a stored path is untrusted input,
 // because anyone who can write to the store chooses it.
 func (s *Session) Extract(path, dest string) (string, error) {
+	dest = ExpandPath(dest)
 	if dest == "" {
 		return "", errors.New("--dest is required: extraction needs an explicit root to confine writes to")
 	}
@@ -242,6 +243,7 @@ type EncryptResult struct {
 //
 // as names the logical path; empty derives one from src.
 func (s *Session) EncryptFile(src, as string, enc container.Encoding) (EncryptResult, error) {
+	src = ExpandPath(src)
 	content, err := os.ReadFile(src) //nolint:gosec // the path is the user's own argument
 	if err != nil {
 		return EncryptResult{}, fmt.Errorf("read %s: %w", src, err)

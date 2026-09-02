@@ -232,3 +232,31 @@ func TestPrivateKeyHeaderDoesNotOverrideTheExclusions(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, found, "none of these hold a private key")
 }
+
+// A shell expands ~ before angou sees an argument, but only when it is
+// unquoted. `--store '~/store'` arrives literally and creates a directory
+// actually named "~", and the GUI — which has no shell at all — always passes
+// typed paths through this way. One turned up inside the repository: a real
+// store at ./~/Dropbox/angou, created by a path someone typed with a tilde.
+func TestExpandPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	require.Equal(t, home, ExpandPath("~"))
+	require.Equal(t, filepath.Join(home, "Dropbox", "angou"), ExpandPath("~/Dropbox/angou"))
+
+	// Left alone: absolute and relative paths mean what they say.
+	require.Equal(t, "/tmp/store", ExpandPath("/tmp/store"))
+	require.Equal(t, "store", ExpandPath("store"))
+	require.Equal(t, "", ExpandPath(""))
+
+	// A tilde that is not a home reference is a legitimate filename.
+	require.Equal(t, "~store", ExpandPath("~store"))
+	require.Equal(t, "backup~", ExpandPath("backup~"))
+	require.Equal(t, "dir/~/file", ExpandPath("dir/~/file"))
+
+	// "~user" is another user's home. Resolving it means consulting the password
+	// database, and silently landing in someone else's home directory is worse
+	// than not resolving at all.
+	require.Equal(t, "~other/store", ExpandPath("~other/store"))
+}

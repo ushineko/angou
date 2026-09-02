@@ -223,6 +223,7 @@ var skipDirs = map[string]bool{
 // An empty or short result is not an assurance: it knows the usual names and
 // places, not every way a secret can be written down.
 func Scan(root string) ([]Candidate, error) {
+	root = ExpandPath(root)
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve %s: %w", root, err)

@@ -15,6 +15,7 @@ import (
 // CopyStore copies a store to another directory, optionally leaving the
 // platform binaries behind (spec 001 R5.10).
 func CopyStore(from, to string, noBinaries bool) (int, error) {
+	from, to = ExpandPath(from), ExpandPath(to)
 	count := 0
 	// Lstat semantics: Walk reports symlinks without following them, which is
 	// what lets the callback refuse them.
