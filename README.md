@@ -11,7 +11,7 @@ files with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store is yours and
 stays where you put it.*
 
-**Version**: 0.2.0
+**Version**: 0.2.1
 
 > **Status**: the design is complete and this document describes it in the present
 > tense. No code is written yet. Read
@@ -733,6 +733,35 @@ machine" cannot honestly be tested on this one.
   as a backstop, not as a plan.
 
 ## Changelog
+
+### 0.2.1
+
+Three fixes, all found by publishing 0.2.0 to a real store and bootstrapping a second
+machine from it.
+
+- **`angou release` refused nothing, and would stash a binary from any build.** The
+  metadata beside a stashed artifact records the version and commit of the tool doing
+  the stashing, not of the artifact — so a `dist/` directory left over from an earlier
+  build was signed under the current version. A store ended up holding
+  `angou-linux-amd64-0.2.0` whose binary reported 0.1.4, and the machine that installed
+  it was then refused by the store's own version floor. The signature was valid
+  throughout: it signs the bytes, and cannot notice that the description beside them is
+  wrong.
+
+  Artifacts are now checked against the commit doing the stashing, read from the
+  binary's recorded VCS revision rather than by running it — asking an artifact what it
+  is by executing it means executing it before deciding whether to trust it.
+- **A leading `~` in a path is expanded.** A shell does this only for an unquoted tilde,
+  and the GUI has no shell at all, so `~/Dropbox/angou` typed into a field arrived
+  literally and created a store in a directory named `~`.
+- **Creating anything under a directory named `~` is refused.** That directory is a trap
+  rather than a mess: from its parent, the obvious way to remove it is `rm -rf ~`, which
+  the shell expands to your home directory before `rm` runs. Opening an existing one
+  still works, or the remedy for having made one would be being unable to reach what is
+  inside it.
+- The version-floor refusal now says how to fix itself. A machine holding an older angou
+  and a synced store has the current version and an installer for it sitting right there,
+  so the message names that command instead of saying "install the current version".
 
 ### 0.2.0
 
