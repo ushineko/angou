@@ -13,10 +13,9 @@ put it.*
 
 **Version**: 0.2.1
 
-> **Status**: the design is complete and this document describes it in the present
-> tense. No code is written yet. Read
-> [`specs/001-angou-format-keying-and-store.md`](specs/001-angou-format-keying-and-store.md)
-> for the design of record, including the alternatives that were rejected and why.
+> The specs are the design of record, including the alternatives that were rejected and
+> why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
+> model and store, and [`specs/002`](specs/002-desktop-gui.md) for the GUI.
 
 ## Table of Contents
 
@@ -549,9 +548,9 @@ part-way through.
 
 ## Usage (GUI)
 
-> **Status**: the GUI is not part of a release yet. Every operation runs the same code
-> the CLI does, and a parity test fails the build if either front end grows an operation
-> the other lacks. It has had far less use than the CLI.
+> **Status**: shipped in 0.2.0, and it has had far less use than the CLI. Every operation
+> runs the same code the CLI does, and a parity test fails the build if either front end
+> grows an operation the other lacks.
 
 `angou-gui` is a desktop front end over the same store. It does everything the CLI does.
 It is a separate program and is never needed to set a machine up or recover one.
