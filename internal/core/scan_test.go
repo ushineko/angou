@@ -260,3 +260,31 @@ func TestExpandPath(t *testing.T) {
 	// than not resolving at all.
 	require.Equal(t, "~other/store", ExpandPath("~other/store"))
 }
+
+// A directory named "~" is a trap, not a mess. From its parent the obvious way
+// to remove it is `rm -rf ~`, which the shell expands to the user's home
+// directory before rm runs — so the tool must not create one, and the person who
+// found the one angou made was right to delete it from a file manager.
+func TestCheckCreatablePathRefusesABareTilde(t *testing.T) {
+	for _, bad := range []string{
+		"~/Dropbox/angou",         // only reachable unexpanded; refused anyway
+		"/home/someone/git/x/~",   // the exact shape angou created
+		"/home/someone/~/Dropbox", // a tilde in the middle
+		"./~/store",               // relative, as a shell would leave it
+	} {
+		require.ErrorIsf(t, CheckCreatablePath(bad), ErrTildeComponent,
+			"%q contains a bare tilde component and must be refused", bad)
+	}
+
+	// Ordinary paths, including filenames that merely contain a tilde. Backup
+	// files end in one, and refusing those would be a different bug.
+	for _, ok := range []string{
+		"/home/someone/Dropbox/angou",
+		"store",
+		"/tmp/backup~",
+		"/tmp/~store",
+		"/tmp/a~b/store",
+	} {
+		require.NoErrorf(t, CheckCreatablePath(ok), "%q is an ordinary path", ok)
+	}
+}

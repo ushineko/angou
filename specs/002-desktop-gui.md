@@ -362,6 +362,18 @@ subprocess is started for it: spec 001 R6.3 holds here too, and a cursor theme i
 good enough reason to break it. This is a workaround for a toolkit gap and is removed if
 GLFW gains `cursor-shape-v1`.
 
+### R5D — Paths from a human
+
+**R5D.1** A leading `~` is expanded before a path is used. A shell does this only for an
+unquoted tilde, and the GUI has no shell, so a path typed into a field always arrives
+with the tilde intact.
+
+**R5D.2** Creating anything under a path component that is literally `~` is refused, in
+both front ends. Such a directory is a trap rather than a mess: from its parent, the
+obvious way to remove it is `rm -rf ~`, which the shell expands to the user's home
+directory before `rm` runs. Opening an existing one is still allowed — otherwise the
+remedy for having made one is being unable to reach what is inside it.
+
 ### R6 — Destructive operations
 
 **R6.1** `rm`, `prune`, `rekey --identity`, `bootstrap --forget`, and any overwrite of

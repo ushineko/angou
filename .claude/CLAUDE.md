@@ -119,6 +119,26 @@ capability the other lacks.
 
 ---
 
+## Paths (non-negotiable)
+
+A tool that takes a path from a human must not turn a typo into a hazard.
+
+- **Expand a leading `~` before using a path.** A shell does this only when the tilde is
+  unquoted, and the GUI has no shell at all, so `~/store` typed into a field arrives
+  literally. Left alone it creates a directory named `~` relative to wherever the
+  program was launched.
+- **Refuse to create anything under a path component that is literally `~`.** Not
+  tidiness — a directory named `~` is a trap. From its parent the obvious way to remove
+  it is `rm -rf ~`, which the shell expands to the user's home directory before `rm`
+  runs. angou created one of these and cleaning it up by hand meant reaching for a
+  command that would have deleted a home directory.
+- **Refuse to create, but still open.** An existing store at such a path has to stay
+  reachable, or the remedy for having made one is being unable to get anything out of it.
+- The same reasoning applies to any path angou writes to, not only stores: extraction
+  destinations and clone targets are checked too.
+
+---
+
 ## Conventions
 
 - Build and lint targets follow `aiq_agent_go`: `##`-comment help, `golangci-lint`

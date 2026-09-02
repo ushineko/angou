@@ -29,6 +29,9 @@ func StoreExists(dir string) bool { return store.Exists(ExpandPath(dir)) }
 // machine without the memory for the derivation.
 func Init(dir string, recovery []byte, ev Events) (*Session, error) {
 	dir = ExpandPath(dir)
+	if err := CheckCreatablePath(dir); err != nil {
+		return nil, err
+	}
 	s, err := store.Init(dir, recovery)
 	if err != nil {
 		return nil, err

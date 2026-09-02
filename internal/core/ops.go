@@ -107,6 +107,9 @@ func (s *Session) Get(path string) (envelope.Envelope, error) {
 // because anyone who can write to the store chooses it.
 func (s *Session) Extract(path, dest string) (string, error) {
 	dest = ExpandPath(dest)
+	if err := CheckCreatablePath(dest); err != nil {
+		return "", err
+	}
 	if dest == "" {
 		return "", errors.New("--dest is required: extraction needs an explicit root to confine writes to")
 	}

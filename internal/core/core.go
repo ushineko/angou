@@ -126,6 +126,42 @@ func ExpandPath(p string) string {
 	return filepath.Join(home, p[2:])
 }
 
+// ErrTildeComponent reports a path with a component that is literally "~".
+var ErrTildeComponent = errors.New("path component is a bare tilde")
+
+// CheckCreatablePath refuses to create anything under a path component that is
+// literally "~".
+//
+// Not tidiness. A directory named "~" is a trap: from inside its parent, the
+// obvious way to remove it is `rm -rf ~`, and the shell expands that to the
+// user's home directory before rm ever runs. angou created one of these — a
+// store at ./~/Dropbox/angou, from a quoted tilde — and cleaning it up by hand
+// meant reaching for a command that would have deleted a home directory. It was
+// removed from a file manager instead, which is the correct instinct and not one
+// a tool should require.
+//
+// ExpandPath already resolves a leading tilde, so nothing reaching here is an
+// accident of quoting. This covers what is left: a tilde deeper in the path,
+// where expansion does not apply and never will, because there the shell treats
+// it as an ordinary filename.
+//
+// Only creation is refused. An existing store at such a path still opens, or the
+// fix for having made one would be to be unable to reach it.
+func CheckCreatablePath(p string) error {
+	for _, part := range strings.Split(filepath.Clean(p), string(filepath.Separator)) {
+		if part != "~" {
+			continue
+		}
+		return fmt.Errorf("%w: %s\n"+
+			"Refusing to create anything under a directory named \"~\". From its parent, the "+
+			"obvious way to remove it is `rm -rf ~`, which the shell expands to your home "+
+			"directory before rm runs.\n"+
+			"If you meant your home directory, write it as ~/ at the start of the path, or "+
+			"give the full path", ErrTildeComponent, p)
+	}
+	return nil
+}
+
 // ValidateKeyringBackend checks the configured keyring backend name before any
 // command does work, so a misspelt one is reported rather than discovered
 // halfway through.
