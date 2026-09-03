@@ -145,6 +145,17 @@ flowchart TD
     LW -->|"AES-256-GCM<br>opens the local copy"| ID
 
     ID -->|"encrypts and signs"| BL["Every blob in the store"]
+
+    classDef secret fill:#7b2d3b,stroke:#e08a9a,stroke-width:1px,color:#ffffff
+    classDef derived fill:#1f4e5f,stroke:#6fb3c9,stroke-width:1px,color:#ffffff
+    classDef identity fill:#3d3170,stroke:#9b8fd6,stroke-width:1px,color:#ffffff
+    classDef data fill:#2f4f2f,stroke:#8fc98f,stroke-width:1px,color:#ffffff
+
+    class RP,UP,BK secret
+    class WK,LW derived
+    class ID identity
+    class BL data
+    linkStyle default stroke:#8a8f98,color:#8a8f98
 ```
 
 **The recovery route** is what a machine uses before it has been set up. The passphrase
