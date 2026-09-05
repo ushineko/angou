@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.2.2
+**Version**: 0.2.3
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -755,6 +755,20 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.2.3
+
+- **`install.sh` pins the release-signing fingerprint whenever there is a key to read.**
+  It was read only under `--publish-to`, so an ordinary install on the machine that signs
+  the releases produced a binary with no pinned key — which then refused to install
+  anything from its own store. A key that cannot be read is fatal only when publishing;
+  otherwise the build falls back to trusting no store binaries, as a machine with no key
+  does.
+- **The GUI is built with the fingerprint too.** It was never passed to `build-gui`, so
+  even when publishing, the installed GUI refused every binary in the store while the CLI
+  beside it accepted them.
+- `--dry-run` reads the fingerprint as well, rather than reporting an empty one on the
+  machine where a real run would set it.
 
 ### 0.2.2
 
