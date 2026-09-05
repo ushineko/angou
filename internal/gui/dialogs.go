@@ -3,12 +3,15 @@ package gui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	angoucontainer "github.com/ushineko/angou/internal/container"
@@ -256,7 +259,7 @@ func (u *ui) extractDialog(e StoreEntry) {
 	note.Importance = widget.LowImportance
 
 	u.pathDialog("Extract "+e.LogicalPath, "Extract",
-		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", dest)), note),
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", u.withBrowse(dest, true))), note),
 		func() {
 			u.withSession("Extract", func(s *core.Session) error {
 				written, err := s.Extract(e.LogicalPath, dest.Text)
@@ -305,7 +308,7 @@ func (u *ui) encryptFileDialog() {
 	binary := widget.NewCheck("Store raw OpenPGP packets instead of ASCII armor", nil)
 
 	u.pathDialog("Encrypt a file", "Encrypt", container.NewVBox(widget.NewForm(
-		widget.NewFormItem("File", src),
+		widget.NewFormItem("File", u.withBrowse(src, false)),
 		widget.NewFormItem("Store as", as),
 	), binary), func() {
 		u.withSession("Encrypt", func(s *core.Session) error {
@@ -326,7 +329,7 @@ func (u *ui) cloneDialog() {
 	noBinaries := widget.NewCheck("Leave the platform binaries behind", nil)
 
 	u.pathDialog("Clone the store", "Clone", container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Destination", to)), noBinaries), func() {
+		widget.NewForm(widget.NewFormItem("Destination", u.withBrowse(to, true))), noBinaries), func() {
 		from := u.storeDir()
 		go func() {
 			done := u.busy("Copying the store…")
@@ -395,7 +398,7 @@ func (u *ui) chooseStore() {
 	}
 
 	u.pathDialog("Choose a store", "Use this store",
-		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", dir)), note, env),
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", u.withBrowse(dir, true))), note, env),
 		func() {
 			if !core.StoreExists(dir.Text) {
 				u.flash(dir.Text+" does not hold a store. Use first-run setup to create one.", StatusBad)
@@ -404,4 +407,75 @@ func (u *ui) chooseStore() {
 			u.setStoreDir(dir.Text)
 			u.flash("Now using the store at "+dir.Text, StatusGood)
 		})
+}
+
+// --- file chooser ----------------------------------------------------------
+
+// pickerStart is where a chooser should open: the path already in the field if
+// it names a directory, otherwise its parent, otherwise the home directory.
+// A field left empty, or holding something that no longer exists, must not
+// leave the chooser at whatever directory the process happens to be in.
+func pickerStart(text string) fyne.ListableURI {
+	candidates := []string{}
+	if p := core.ExpandPath(text); p != "" {
+		candidates = append(candidates, p, filepath.Dir(p))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, home)
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err != nil || !fi.IsDir() {
+			continue
+		}
+		if lu, err := storage.ListerForURI(storage.NewFileURI(c)); err == nil {
+			return lu
+		}
+	}
+	return nil
+}
+
+// browseButton is the affordance beside a path field: it opens the platform
+// chooser and writes the chosen path back into the field. The field stays
+// editable — a path can still be typed or pasted, which is the only way to
+// reach somewhere the chooser will not show.
+//
+// `dir` picks a directory chooser rather than a file one.
+func (u *ui) browseButton(field *widget.Entry, dir bool) *widget.Button {
+	choose := func() {
+		if dir {
+			d := dialog.NewFolderOpen(func(lu fyne.ListableURI, err error) {
+				if err != nil || lu == nil {
+					return
+				}
+				field.SetText(lu.Path())
+			}, u.win)
+			d.SetLocation(pickerStart(field.Text))
+			// Resize only after Show. Before Show the dialog has no window,
+			// and Resize asks it for its minimum size — which in fyne 2.8.1
+			// dereferences that nil window and takes the process with it.
+			d.Show()
+			d.Resize(fyne.NewSize(760, 520))
+			return
+		}
+		d := dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
+			if err != nil || rc == nil {
+				return
+			}
+			// The chooser hands back an open handle; angou reads the file
+			// itself, by path, so close it immediately rather than holding a
+			// descriptor open for the life of the dialog.
+			path := rc.URI().Path()
+			_ = rc.Close()
+			field.SetText(path)
+		}, u.win)
+		d.SetLocation(pickerStart(field.Text))
+		d.Show()
+		d.Resize(fyne.NewSize(760, 520))
+	}
+	return widget.NewButtonWithIcon("Browse…", theme.FolderOpenIcon(), choose)
+}
+
+// withBrowse lays a path field out with its chooser button on the right.
+func (u *ui) withBrowse(field *widget.Entry, dir bool) fyne.CanvasObject {
+	return container.NewBorder(nil, nil, nil, u.browseButton(field, dir), field)
 }

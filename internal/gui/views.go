@@ -367,11 +367,10 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 
 	top := container.NewVBox(
 		heading("Encrypt",
-			"Scan a directory for credentials, see why each file was flagged, and choose which to store. "+
-				"This is the flow the command line does worst: --auto takes everything the scanner found, "+
-				"and the alternative is a prompt per file."),
+			"Scan a directory for likely candidates for file encryption, such as credentials, "+
+				"see why each file was flagged, and choose which to store."),
 		container.NewBorder(nil, nil, widget.NewLabel("Directory"),
-			nil, dir),
+			nil, u.withBrowse(dir, true)),
 		container.NewHBox(scan, all, none, count),
 		widget.NewSeparator(),
 	)
