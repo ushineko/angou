@@ -82,28 +82,41 @@ if [ -n "$PUBLISH_TO" ] && [ ! -t 0 ] && [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 # The release-signing fingerprint has to be compiled into the binary, so it must
-# be known before anything is built (spec 001 R5.4.1). A build without one
-# refuses to install from a store rather than trusting any signature it can
-# verify, which is the correct default for an ordinary install.
+# be known before anything is built (spec 001 R5.4.1). A build without one refuses
+# to install from a store rather than trusting any signature it can verify, which
+# is the correct default for a machine that has no release-signing key.
+#
+# A machine that *has* one is a different case, and it is the one this used to get
+# wrong: the fingerprint was read only when publishing, so an ordinary install on
+# the machine that signs the releases built a binary that could never install from
+# its own store. The key beside it is the statement of which signatures to trust,
+# whether or not this run is publishing anything.
 RELEASE_KEY=""
-if [ -n "$PUBLISH_TO" ]; then
-    if [ ! -f "$SIGNING_KEY" ]; then
-        echo "Creating a release-signing key at ${SIGNING_KEY} ..."
-        run mkdir -p "$(dirname "$SIGNING_KEY")"
-        run make -C "$REPO_DIR" build-static
-        run "${REPO_DIR}/angou" release --new-signing-key "$SIGNING_KEY"
-    else
-        echo "Reusing the release-signing key at ${SIGNING_KEY} ..."
-    fi
-    if [ "$DRY_RUN" -eq 0 ]; then
-        # Reuse rather than rotate: binaries already installed elsewhere pin this
-        # fingerprint, and a new key would make them refuse the store.
-        RELEASE_KEY="$(gpg --show-keys --with-colons "$SIGNING_KEY" 2>/dev/null |
-            awk -F: '/^fpr:/{print $10; exit}')"
-        if [ -z "$RELEASE_KEY" ]; then
+if [ -n "$PUBLISH_TO" ] && [ ! -f "$SIGNING_KEY" ]; then
+    echo "Creating a release-signing key at ${SIGNING_KEY} ..."
+    run mkdir -p "$(dirname "$SIGNING_KEY")"
+    run make -C "$REPO_DIR" build-static
+    run "${REPO_DIR}/angou" release --new-signing-key "$SIGNING_KEY"
+fi
+# Read in a dry run too. It is a read-only gpg call, and without it a dry run
+# reports an empty RELEASE_KEY on the one machine where a real run would set it,
+# which is exactly backwards for a flag whose job is to show what would happen.
+if [ -f "$SIGNING_KEY" ]; then
+    # Reuse rather than rotate: binaries already installed elsewhere pin this
+    # fingerprint, and a new key would make them refuse the store.
+    RELEASE_KEY="$(gpg --show-keys --with-colons "$SIGNING_KEY" 2>/dev/null |
+        awk -F: '/^fpr:/{print $10; exit}')"
+    if [ -z "$RELEASE_KEY" ]; then
+        if [ -n "$PUBLISH_TO" ]; then
             echo "Error: could not read a fingerprint from ${SIGNING_KEY}" >&2
             exit 1
         fi
+        # Not publishing, so this is not fatal: the build simply falls back to
+        # trusting no store binaries, which is what a machine with no key does.
+        echo "Warning: could not read a fingerprint from ${SIGNING_KEY}; building" >&2
+        echo "         without one, so this install will not accept a binary from" >&2
+        echo "         a store." >&2
+    else
         echo "Release-signing key: ${RELEASE_KEY}"
     fi
 fi
@@ -120,7 +133,10 @@ run install -Dm755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
 # reason to skip the GUI, not a reason to leave the machine without angou.
 if [ "$WITH_GUI" -eq 1 ]; then
     echo "Building the desktop GUI ..."
-    if [ "$DRY_RUN" -eq 1 ] || make -C "$REPO_DIR" build-gui; then
+    # RELEASE_KEY belongs here as much as on the CLI build: the GUI installs
+    # binaries from a store too, and a GUI built without it refuses every one of
+    # them while the CLI beside it accepts them.
+    if [ "$DRY_RUN" -eq 1 ] || make -C "$REPO_DIR" build-gui RELEASE_KEY="$RELEASE_KEY"; then
         run install -Dm755 "${REPO_DIR}/angou-gui" "${BIN_DIR}/angou-gui"
         run install -Dm644 "${REPO_DIR}/packaging/io.ushineko.angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop"
         run install -Dm644 "${REPO_DIR}/packaging/angou.svg" "${ICON_DIR}/angou.svg"
