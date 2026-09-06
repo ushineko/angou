@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -113,14 +112,9 @@ func listDetailed(entries []store.IndexEntry, colour bool) error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer func() { _ = w.Flush() }()
-
-	header := "MODE\tSIZE\tMODIFIED\tPATH\tORIGIN"
-	if colour {
-		header = cDim + strings.ReplaceAll(header, "\t", cReset+"\t"+cDim) + cReset
-	}
-	_, _ = fmt.Fprintln(w, header)
+	t := newTable(colour)
+	t.row(col(cDim, "MODE"), col(cDim, "SIZE"), col(cDim, "MODIFIED"),
+		col(cDim, "PATH"), col(cDim, "ORIGIN"))
 
 	var total int64
 	for _, e := range entries {
@@ -129,17 +123,17 @@ func listDetailed(entries []store.IndexEntry, colour bool) error {
 		if origin == "" {
 			origin = "—"
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			paint(colour, modeColour(e.Mode), formatMode(e.Mode)),
-			paint(colour, cGreen, core.HumanSize(e.Size)),
-			paint(colour, cDim, formatAge(e.MTime)),
-			paint(colour, colourFor(e.Path), e.Path),
-			paint(colour, cDim, shortenHome(origin)),
+		t.row(
+			col(modeColour(e.Mode), formatMode(e.Mode)),
+			col(cGreen, core.HumanSize(e.Size)),
+			col(cDim, formatAge(e.MTime)),
+			col(colourFor(e.Path), e.Path),
+			col(cDim, shortenHome(origin)),
 		)
 	}
-	_, _ = fmt.Fprintf(w, "\n%s\t%s\t\t\t\n",
-		paint(colour, cBold, fmt.Sprintf("%d files", len(entries))),
-		paint(colour, cBold, core.HumanSize(total)))
+	t.blank()
+	t.row(colf(cBold, "%d files", len(entries)), col(cBold, core.HumanSize(total)))
+	t.render(os.Stdout)
 	return nil
 }
 
@@ -160,9 +154,8 @@ func listRaw() error {
 	}
 	colour := useColour(false)
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer func() { _ = w.Flush() }()
-	_, _ = fmt.Fprintln(w, paint(colour, cDim, "SIZE\tMODIFIED\tNAME\tWHAT IT IS"))
+	t := newTable(colour)
+	t.row(col(cDim, "SIZE"), col(cDim, "MODIFIED"), col(cDim, "NAME"), col(cDim, "WHAT IT IS"))
 
 	names := make([]os.DirEntry, 0, len(entries))
 	names = append(names, entries...)
@@ -182,14 +175,17 @@ func listRaw() error {
 		if de.IsDir() {
 			size = "—"
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			paint(colour, cGreen, size),
-			paint(colour, cDim, formatAge(info.ModTime().Unix())),
-			paint(colour, colourOf, de.Name()),
-			paint(colour, cDim, kind))
+		t.row(
+			col(cGreen, size),
+			col(cDim, formatAge(info.ModTime().Unix())),
+			col(colourOf, de.Name()),
+			col(cDim, kind),
+		)
 	}
-	_, _ = fmt.Fprintf(w, "\n%s\t\t\t\n",
-		paint(colour, cBold, fmt.Sprintf("%d encrypted files", blobs)))
+	t.blank()
+	t.row(colf(cBold, "%d encrypted files", blobs))
+	t.render(os.Stdout)
+
 	fmt.Fprintln(os.Stderr, "\nThese names are keyed hashes of the paths you chose, so they give up no\n"+
 		"filenames. The number of files and their sizes are visible to anyone holding\n"+
 		"the store, and so is the fact that each one changed when it did.")

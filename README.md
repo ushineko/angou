@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.3.0
+**Version**: 0.3.1
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -782,6 +782,19 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.3.1
+
+- **`ls` lined its columns up wrongly in colour.** The listing was laid out with
+  `text/tabwriter`, which counts every rune in a cell towards the column width —
+  including the ones in an ANSI escape, which occupy no screen columns at all. Each
+  coloured cell was measured about ten characters wider than it looked, so the alignment
+  fell apart in the mode the listing is normally read in. `ls`, `ls --raw` and the
+  `enc --dry-run` scan report are now laid out by code that keeps the escapes beside the
+  text rather than inside it, and colour cannot change the layout.
+- Column widths are measured in screen columns rather than runes, so a stored path
+  holding a double-width character — a CJK filename, an emoji — no longer pulls the rest
+  of its row left.
 
 ### 0.3.0
 

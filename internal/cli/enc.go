@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -147,28 +146,28 @@ func encryptAll(root string, auto, dryRun bool, enc container.Encoding) error {
 // it picked and why — a rule that is right about SSH keys can still be wrong
 // about a directory full of session files whose names end in .key.
 func reportScan(root string, found []core.Candidate) error {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer func() { _ = w.Flush() }()
-
 	colour := useColour(false)
-	_, _ = fmt.Fprintln(w, paint(colour, cDim, "SIZE\tFILE\tWHY"))
+	t := newTable(colour)
+	t.row(col(cDim, "SIZE"), col(cDim, "FILE"), col(cDim, "WHY"))
 
 	for _, c := range found {
 		if _, err := core.StoredAs(c.Path); err != nil {
 			// A file the store cannot name is not a candidate; say so here
 			// rather than failing later.
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n",
-				paint(colour, cGreen, core.HumanSize(c.Size)),
-				paint(colour, cDim, shortenHome(c.Path)),
-				paint(colour, cRed, "cannot be stored: "+err.Error()))
+			t.row(
+				col(cGreen, core.HumanSize(c.Size)),
+				col(cDim, shortenHome(c.Path)),
+				col(cRed, "cannot be stored: "+err.Error()),
+			)
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n",
-			paint(colour, cGreen, core.HumanSize(c.Size)),
-			paint(colour, colourFor(c.Path), shortenHome(c.Path)),
-			paint(colour, cYell, c.Reason))
+		t.row(
+			col(cGreen, core.HumanSize(c.Size)),
+			col(colourFor(c.Path), shortenHome(c.Path)),
+			col(cYell, c.Reason),
+		)
 	}
-	_ = w.Flush()
+	t.render(os.Stdout)
 
 	fmt.Fprintf(os.Stderr, "\n%d file(s) under %s. Nothing was stored.\n", len(found), root)
 	fmt.Fprintln(os.Stderr, "Run again with --all to be asked about each, or --all --auto to take them all.")
