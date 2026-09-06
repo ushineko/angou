@@ -80,7 +80,10 @@ type ui struct {
 	candidates []ScanCandidate
 	scanning   bool
 	scanRoot   string
-	flashes    *fyne.Container // transient result banners, floated over the content
+	// flashes is the result-banner slot: one banner at a time, in a region of
+	// the window that keeps its height whether or not anything is in it.
+	flashes  *fyne.Container
+	flashSeq int // identifies the banner that owns the slot, so a stale timer cannot clear a newer one
 }
 
 // Preference keys. Namespaced so a later setting cannot collide with one of
@@ -241,16 +244,30 @@ func Run(o Options) {
 		u.show(secs[i].build(u))
 	}
 
-	// Result banners float over the bottom of the content rather than sitting
-	// above it. Stacked above, every banner pushed the whole section down —
-	// the row under the pointer moved out from under it, which is jarring in a
-	// window whose buttons include Remove. Overlaid, nothing reflows.
-	overlay := container.NewVBox(layout.NewSpacer(), u.flashes)
-	split := container.NewHSplit(u.nav, container.NewStack(u.content, overlay))
+	split := container.NewHSplit(u.nav, u.content)
 	split.SetOffset(0.16)
 
-	// The status bar is kept addressable so changing store can redraw it.
-	u.frame = container.NewVBox(u.statusBar())
+	// Result banners get their own region above the status bar, and that region
+	// keeps its height whether or not a banner is in it.
+	//
+	// Both of the obvious alternatives are worse. Stacked above the content,
+	// every banner pushed the whole section down — the row under the pointer
+	// moved out from under it, which is jarring in a window whose buttons
+	// include Remove. Floated over the content, which is what this did until
+	// now, nothing reflowed but the banner covered whatever was at the bottom
+	// of the section: on Store that is Decrypt, Extract, Rename and Remove, and
+	// on Encrypt it is the button that starts the encryption. A banner that
+	// hides the controls you were about to use is not a lesser problem than one
+	// that moves them.
+	//
+	// The reserved height is the price, and it is the same trade the progress
+	// indicator in the status bar already makes.
+	// The banner scrolls inside the slot rather than growing it, so a long
+	// message cannot reflow the window either.
+	u.frame = container.NewVBox(
+		fixedHeight(container.NewVScroll(u.flashes), flashSlotHeight),
+		u.statusBar(),
+	)
 	u.win.SetContent(container.NewBorder(u.header(), u.frame, nil, nil, split))
 	// F5 and Ctrl+R reload, the two bindings people already try. The store is a
 	// plain directory that other things write to, so "show me what is actually
@@ -306,7 +323,7 @@ func sectionIndex(secs []section, name string) int {
 // store. refresh alone only replaces the content pane.
 func (u *ui) rebuild() {
 	if u.frame != nil {
-		u.frame.Objects[0] = u.statusBar()
+		u.frame.Objects[frameStatusBar] = u.statusBar()
 		u.frame.Refresh()
 	}
 	u.refresh()
@@ -334,7 +351,9 @@ func (u *ui) header() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("angou", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
 	choose := widget.NewButtonWithIcon("Store…", theme.FolderOpenIcon(), func() { u.chooseStore() })
-	setup := widget.NewButton("First-run setup…", func() { u.firstRun() })
+	// Not "First-run setup": it opens an existing store as readily as it makes
+	// one, and calling it first-run hid that from every machine after the first.
+	setup := widget.NewButton("Set up…", func() { u.firstRun() })
 
 	bar := container.NewHBox(title, layout.NewSpacer(), choose, setup)
 	return container.NewVBox(container.NewPadded(bar), widget.NewSeparator())
@@ -494,12 +513,50 @@ func (u *ui) redrawStatus() {
 	if u.frame == nil {
 		return
 	}
-	u.frame.Objects[0] = u.statusBar()
+	u.frame.Objects[frameStatusBar] = u.statusBar()
 	u.frame.Refresh()
 }
 
-// flash reports the result of an operation as a banner that fades out on its
-// own.
+// The banner slot's geometry and timings.
+const (
+	// frameStatusBar is the status bar's position in u.frame, which also holds
+	// the banner slot above it.
+	frameStatusBar = 1
+	// flashSlotHeight reserves room for a banner of a few lines. Reserved
+	// whether or not one is showing, so nothing moves when one arrives.
+	flashSlotHeight = 68
+	// How long a banner stays before it starts fading. These were 1.6s, which
+	// is long enough to notice something appeared and not long enough to read
+	// it — the result was a window that reported its results to nobody. A
+	// warning gets longer because it usually names a condition to act on.
+	flashHoldGood = 6 * time.Second
+	flashHoldWarn = 12 * time.Second
+	// The fade itself. Long enough to read as intentional, short enough that
+	// the banner is not sitting there half-gone.
+	flashFade = 700 * time.Millisecond
+)
+
+// flashHold says how long a banner of this status stays up, and whether it goes
+// on its own at all.
+//
+// A failure does not: it waits to be dismissed, or until another operation
+// replaces it. An error that removes itself on a timer is an error nobody read,
+// and the operation it describes has already not happened.
+func flashHold(st Status) (time.Duration, bool) {
+	switch st {
+	case StatusBad:
+		return 0, false
+	case StatusWarn:
+		return flashHoldWarn, true
+	default:
+		return flashHoldGood, true
+	}
+}
+
+// flash reports the result of an operation as a banner in the slot above the
+// status bar. One banner shows at a time: a newer result replaces an older one
+// rather than stacking, so the slot cannot overflow and the most recent thing
+// that happened is always the thing on screen.
 //
 // This is the one place motion earns its keep in this window. It carries
 // information — something changed, here, and this is what it was — rather than
@@ -514,6 +571,9 @@ func (u *ui) redrawStatus() {
 // the whole life of the banner, which is the accessible choice anyway — fading
 // text out is harder to read at every intermediate step.
 func (u *ui) flash(text string, st Status) {
+	u.flashSeq++
+	seq := u.flashSeq
+
 	tint := u.flashTint(st)
 	bg := canvas.NewRectangle(tint)
 	bg.CornerRadius = 2
@@ -521,27 +581,50 @@ func (u *ui) flash(text string, st Status) {
 	label := widget.NewLabel(text)
 	label.Wrapping = fyne.TextWrapWord
 
+	// Dismissable, because a banner that only leaves on a timer leaves either
+	// too early to read or too late to be rid of. This is also the only way to
+	// clear a failure, which does not go on its own.
+	dismiss := widget.NewButtonWithIcon("", theme.CancelIcon(), func() { u.clearFlash(seq) })
+	dismiss.Importance = widget.LowImportance
+
 	banner := container.NewStack(bg, container.NewPadded(
-		container.NewHBox(marker(st), label)))
-	u.flashes.Add(banner)
+		container.NewBorder(nil, nil, marker(st), dismiss, label)))
+	u.flashes.Objects = []fyne.CanvasObject{banner}
 	u.flashes.Refresh()
 
+	hold, fades := flashHold(st)
+	if !fades {
+		return
+	}
+
 	transparent := color.NRGBA{R: tint.R, G: tint.G, B: tint.B, A: 0}
-	fade := canvas.NewColorRGBAAnimation(tint, transparent, 1600*time.Millisecond, func(c color.Color) {
-		bg.FillColor = c
-		canvas.Refresh(bg)
-	})
-	fade.Curve = fyne.AnimationEaseIn
-	// Removing the banner is what actually reclaims the space; the colour
-	// animation only makes the removal look intended rather than abrupt.
 	go func() {
-		time.Sleep(1700 * time.Millisecond)
+		time.Sleep(hold)
 		fyne.Do(func() {
-			u.flashes.Remove(banner)
-			u.flashes.Refresh()
+			if u.flashSeq != seq {
+				return // a newer banner owns the slot
+			}
+			fade := canvas.NewColorRGBAAnimation(tint, transparent, flashFade, func(c color.Color) {
+				bg.FillColor = c
+				canvas.Refresh(bg)
+			})
+			fade.Curve = fyne.AnimationEaseIn
+			fade.Start()
 		})
+		time.Sleep(flashFade)
+		fyne.Do(func() { u.clearFlash(seq) })
 	}()
-	fade.Start()
+}
+
+// clearFlash empties the slot, unless a newer banner has taken it. Called from
+// the dismiss button and from the fade's own timer, which may arrive after the
+// banner it belongs to has already been replaced.
+func (u *ui) clearFlash(seq int) {
+	if u.flashSeq != seq {
+		return
+	}
+	u.flashes.Objects = nil
+	u.flashes.Refresh()
 }
 
 // flashTint is the banner's starting colour: the status role from the active
@@ -647,5 +730,9 @@ func Actions() []string {
 		"verify-bootstrap",
 		"clone",
 		"agent",
+		// The GUI's "use" is the Store… chooser in the header and the
+		// existing-store path of first-run setup: both remember the directory
+		// they were given, in the same file the command writes.
+		"use",
 	}
 }

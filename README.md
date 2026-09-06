@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.2.3
+**Version**: 0.3.0
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -265,12 +265,30 @@ desktop recognize a `.angou` blob. Remove it all with `./uninstall.sh`.
 
 ## Using it
 
-Every command works on one store. Name it with `--store`, or set `ANGOU_STORE` once and
-leave the flag off:
+Every command works on one store, and after `init` or `bootstrap` it knows which one:
+both record the store they just set up, and later commands use it with no flag and no
+environment. `angou use` shows the current answer, and changes it:
+
+```bash
+angou use ~/Dropbox/angou    # this machine works with this store
+angou use                    # what is remembered, and what is overriding it
+angou use --forget           # back to needing a path
+```
+
+`--store` on one command still wins, and `$ANGOU_STORE` wins over both:
 
 ```bash
 export ANGOU_STORE=~/Dropbox/angou
+angou ls --store /mnt/backup/angou   # a one-off; what is remembered does not change
 ```
+
+That ordering is deliberate. A `--store` against a backup copy is a one-off, and if it
+became the new default, the next command — perhaps `rm` — would run somewhere you did not
+mean. Only `init`, `bootstrap` and `use` change what is remembered.
+
+The record is a path in `~/.config/angou/config.json`, written for you alone. It is the
+same file the desktop GUI reads, so the window and the terminal work with the same store.
+No fingerprint, no passphrase, and nothing out of the store is written there.
 
 ### Making a store
 
@@ -641,8 +659,17 @@ them. Those settings and the store directory are all the GUI saves between runs;
 holds no fingerprint, no passphrase, and nothing out of the store.
 
 The GUI finds its store from `$ANGOU_STORE` when set, and otherwise from the directory you
-last chose with **Store…**. The environment wins, so a shell that already names a store
-keeps naming it.
+last chose with **Store…** — which is the same remembered path `angou use` reads and
+writes, so choosing a store in the window means the terminal finds it too. The environment
+wins, so a shell that already names a store keeps naming it.
+
+With neither set, the window opens on a dialog offering two things: open a store that is
+already here, or create one. The first is selected, because it is the ordinary case — the
+store is a plain directory built to be synced, so every machine after the first meets
+angou with the store already on disk. Opening one asks for the recovery passphrase there
+and then rather than waiting until you navigate somewhere, and unless you untick the box
+it stores a local key afterwards so it stops asking. The same dialog is reachable later
+from **Set up…**.
 
 The GUI needs CGO, OpenGL, and a display server. The CLI needs none of those, because
 bootstrapping a bare machine depends on it staying a static binary. `angou release`
@@ -755,6 +782,32 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.3.0
+
+- **Both front ends remember the same store.** `init` and `bootstrap` record the store
+  they set up in `~/.config/angou/config.json`, and every later command uses it without
+  `--store`. The desktop GUI reads and writes the same file, so choosing a store in the
+  window means the terminal finds it. `angou use <dir>` changes the choice, `angou use`
+  shows it, `angou use --forget` drops it. `--store` on one command still wins and
+  `$ANGOU_STORE` wins over both, so a one-off against a backup copy cannot become the new
+  default. Only a path is written: no fingerprint, no passphrase, nothing out of the store.
+- **First-run setup offers to open a store, not only to create one.** It was one dialog
+  headed "Set up angou" whose only button was "Create the store", which is the wrong
+  default for a store built to be synced — every machine after the first meets angou with
+  the store already on disk, and reaching it meant cancelling the dialog and finding a
+  header button. The existing-store path is now first and selected, and choosing it opens
+  the store there and then, which is the recovery-passphrase prompt, rather than leaving
+  that to whenever something is navigated to. Both paths offer to set the machine up.
+- **Result banners stop covering the buttons underneath them.** They floated over the
+  bottom of the content, which is where Store keeps Decrypt, Extract, Rename and Remove.
+  They now have a reserved region above the status bar that keeps its height whether or
+  not a banner is in it, so nothing is covered and nothing reflows.
+- **Banners stay long enough to read.** They were up for 1.6 seconds. A result now holds
+  for six seconds and a warning for twelve before fading, a failure stays until it is
+  dismissed, and every banner has a dismiss button.
+- Every path field in the GUI has a file chooser beside it (0.2.2), including the two in
+  first-run setup.
 
 ### 0.2.3
 

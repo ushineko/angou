@@ -75,6 +75,11 @@ func newBootstrapCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Remembered whether or not the local key was stored: bootstrap is
+			// how a machine says which store is its own, and a machine with no
+			// keyring still wants later commands to find it without --store.
+			rememberStore(dir)
+
 			if !done {
 				fmt.Printf("Store %s is usable with the recovery passphrase.\n", dir)
 				fmt.Printf("Identity fingerprint: %s\n", fingerprint)

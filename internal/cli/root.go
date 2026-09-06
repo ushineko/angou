@@ -73,16 +73,27 @@ func Root() *cobra.Command {
 		newReleaseCmd(),
 		newVerifyBootstrapCmd(),
 		newCloneCmd(),
+		newUseCmd(),
 		newAgentCmd(),
 	)
 	return root
 }
 
+// storeDir resolves which store to work with.
+//
+// --store wins, then $ANGOU_STORE (which is the flag's default, so both arrive
+// in the same field), then the store this machine remembered when it was set up.
+// The remembered one comes last on purpose: a --store on one command is a
+// one-off against another store and must not become the new default, or a single
+// command run against a backup copy would quietly repoint every later one.
 func storeDir() (string, error) {
-	if global.storeDir == "" {
-		return "", fmt.Errorf("no store directory: pass --store or set $%s", StoreEnv)
+	if global.storeDir != "" {
+		return global.storeDir, nil
 	}
-	return global.storeDir, nil
+	if dir := core.RememberedStore(); dir != "" {
+		return dir, nil
+	}
+	return "", fmt.Errorf("no store directory: pass --store, set $%s, or run `angou use <dir>`", StoreEnv)
 }
 
 // openStore unlocks the store by whichever route the machine supports. See
@@ -94,4 +105,17 @@ func encodingFor(binary bool) container.Encoding {
 		return container.EncodingBinary
 	}
 	return container.EncodingArmor
+}
+
+// rememberStore records the store a machine has just set up, so later commands
+// find it without --store.
+//
+// Failing to write it is reported and then dropped. The store exists and the
+// machine is set up; refusing to return success because a convenience file could
+// not be written would misreport what actually happened.
+func rememberStore(dir string) {
+	if err := core.RememberStore(dir); err != nil {
+		fmt.Fprintf(os.Stderr, "angou: could not remember %s as this machine's store: %v\n"+
+			"Later commands will need --store or $%s.\n", dir, err, StoreEnv)
+	}
 }

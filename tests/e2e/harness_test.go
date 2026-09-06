@@ -52,6 +52,10 @@ type env struct {
 	keyringBackend string
 	// cachedVersion is the version the binary under test reports.
 	cachedVersion string
+	// noStoreEnv drops $ANGOU_STORE from the child's environment. Set by tests
+	// about what the binary works out for itself: with the variable set there is
+	// nothing left for a remembered store to decide.
+	noStoreEnv bool
 }
 
 // version asks the binary what version it is.
@@ -251,6 +255,9 @@ func (e *env) childEnv() []string {
 		"XDG_STATE_HOME":  filepath.Join(e.home, ".local", "state"),
 		"XDG_RUNTIME_DIR": e.runtimeDir,
 		"ANGOU_STORE":     e.store,
+	}
+	if e.noStoreEnv {
+		delete(xdg, "ANGOU_STORE")
 	}
 	for _, dir := range xdg {
 		if strings.HasPrefix(dir, base) {

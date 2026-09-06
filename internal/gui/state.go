@@ -30,7 +30,9 @@ import (
 // StoreEnv names the environment variable holding the default store directory.
 const StoreEnv = "ANGOU_STORE"
 
-// prefStore is where the chosen store directory is remembered.
+// prefStore is where the GUI used to remember the chosen store, before the
+// choice moved into the config file both front ends read. Still read once, to
+// migrate a window that had already been pointed at a store.
 const prefStore = "store.dir"
 
 // storeDir is the store this window is working with, or empty when none has
@@ -42,19 +44,39 @@ const prefStore = "store.dir"
 // entry with no environment at all — requiring the variable would mean the
 // taskbar icon always led to first-run setup.
 //
+// The remembered choice lives in core's config file rather than in Fyne's
+// preferences, which is what makes `angou ls` in a terminal and the window agree
+// about which store this machine works with. They are one tool over one store;
+// having each front end remember its own was a difference with no reason behind
+// it.
+//
 // A store path is not a secret. It is already in $ANGOU_STORE, in the shell
 // history of anyone using the CLI, and in doctor's output. What is never
-// written here is a fingerprint, a passphrase, or anything out of the store.
+// written there is a fingerprint, a passphrase, or anything out of the store.
 func (u *ui) storeDir() string {
 	if v := os.Getenv(StoreEnv); v != "" {
 		return v
 	}
-	return u.app.Preferences().String(prefStore)
+	if dir := core.RememberedStore(); dir != "" {
+		return dir
+	}
+	// A window that had chosen a store before the choice was shared: adopt it
+	// once, so upgrading does not look like the store was forgotten.
+	if old := u.app.Preferences().String(prefStore); old != "" {
+		if err := core.RememberStore(old); err == nil {
+			u.app.Preferences().RemoveValue(prefStore)
+		}
+		return old
+	}
+	return ""
 }
 
 // setStoreDir remembers a store and reloads everything for it.
 func (u *ui) setStoreDir(dir string) {
-	u.app.Preferences().SetString(prefStore, dir)
+	if err := core.RememberStore(dir); err != nil {
+		u.flash("Could not remember "+dir+" as this machine's store: "+err.Error()+
+			". This window is using it, but the command line and the next run will not.", StatusWarn)
+	}
 	u.session = Session{StoreDir: dir}
 	// Everything on screen describes the previous store.
 	u.entries, u.entriesOK = nil, false
@@ -381,7 +403,8 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 		return
 	}
 	if core.StoreExists(dir) {
-		u.flash(dir+" already holds a store, so there is nothing to initialize.", StatusBad)
+		u.flash(dir+" already holds a store. Choose \"Open a store that already exists\" to "+
+			"use it; initializing over it is not offered.", StatusBad)
 		return
 	}
 

@@ -87,6 +87,7 @@ func newInitCmd() *cobra.Command {
 			}
 			fmt.Printf("Initialized store at %s\n", s.Root())
 			fmt.Printf("Identity fingerprint: %s\n", s.Fingerprint())
+			rememberStore(s.Root())
 
 			if noBootstrap {
 				fmt.Fprintf(os.Stderr, "\nThis machine was not set up, so every command will ask for the recovery\n"+
