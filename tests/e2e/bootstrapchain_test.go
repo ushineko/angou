@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -37,6 +38,26 @@ func releasedStore(t *testing.T) (*env, string) {
 	e.mustRun("release", "--dist", dist, "--signing-key", key)
 	return e, fingerprint
 }
+
+// hostPlatform is the GOOS-GOARCH bootstrap.sh selects on the machine running the
+// suite. The installer installs the binary matching it, so a test that
+// manipulates "the binary for this machine" must target this rather than a
+// hardcoded platform. releasedStore stocks linux-amd64 and darwin-arm64, which
+// are the two CI hosts, so on either the host binary is present.
+func hostPlatform() string { return runtime.GOOS + "-" + runtime.GOARCH }
+
+// otherReleasedPlatform is the platform releasedStore stocks that is not the
+// host. Tests that force the "no binary for this platform" path remove the host
+// binary and then check the installer lists this one.
+func otherReleasedPlatform() string {
+	if hostPlatform() == "darwin-arm64" {
+		return "linux-amd64"
+	}
+	return "darwin-arm64"
+}
+
+// platformSlash renders a GOOS-GOARCH the way the installer prints it (goos/arch).
+func platformSlash(p string) string { return strings.ReplaceAll(p, "-", "/") }
 
 // writeFakeBinary stands in for a built angou, using the binary under test.
 //
@@ -70,6 +91,15 @@ func (e *env) runInstaller(t *testing.T, extraPath string) result {
 	path := "/usr/bin:/bin"
 	if extraPath != "" {
 		path = extraPath
+	} else if runtime.GOOS == "darwin" {
+		// macOS ships no gpg; the system gpg is wherever the user installed it
+		// (Homebrew's /opt/homebrew/bin or /usr/local/bin), not /usr/bin. A
+		// bare-machine PATH on a Mac still has to reach it, exactly as /usr/bin
+		// reaches the system gpg on Linux, so add the real gpg's directory. The
+		// no-gpg test passes its own extraPath and so is unaffected.
+		if gpgPath, err := exec.LookPath("gpg"); err == nil {
+			path = filepath.Dir(gpgPath) + ":" + path
+		}
 	}
 	cmd := exec.Command("/bin/sh", e.storePath("bootstrap.sh"))
 	cmd.Env = []string{
@@ -149,7 +179,7 @@ func TestBareMachineInstallsFromTheStore(t *testing.T) {
 func TestInstallerRefusesATamperedBinary(t *testing.T) {
 	e, fingerprint := releasedStore(t)
 
-	binary := e.storePath("bootstrap", e.binaryName(t, "linux-amd64"))
+	binary := e.storePath("bootstrap", e.binaryName(t, hostPlatform()))
 	require.NoError(t, os.WriteFile(binary, append(readFile(t, binary), []byte("\n# added\n")...), 0o755)) //nolint:gosec // it must stay executable
 
 	r := e.runInstaller(t, "")
@@ -213,13 +243,14 @@ func TestInstallerListsAvailablePlatforms(t *testing.T) {
 
 	// Remove everything for the host platform, leaving only the other one.
 	for _, suffix := range []string{"", ".sig", ".json"} {
-		require.NoError(t, os.Remove(e.storePath("bootstrap", e.binaryName(t, "linux-amd64")+suffix)))
+		require.NoError(t, os.Remove(e.storePath("bootstrap", e.binaryName(t, hostPlatform())+suffix)))
 	}
 
 	r := e.runInstaller(t, "")
 	require.NotZero(t, r.code)
 	require.Contains(t, r.stderr, "holds no binary for")
-	require.Contains(t, r.stderr, "darwin/arm64", "the message should list what is available")
+	require.Contains(t, r.stderr, platformSlash(otherReleasedPlatform()),
+		"the message should list what is available")
 }
 
 // TestInstallerSelfCheckReportsDriftHonestly covers R5.8.2 and R5.8.3. The
@@ -347,11 +378,14 @@ func TestInstallerPrefersAReleaseOverAPrerelease(t *testing.T) {
 	dir := e.storePath("bootstrap")
 
 	// An explicit pair, higher than whatever this build calls itself, so the
-	// test does not depend on the version under test being a pre-release.
-	const release, prerelease = "angou-linux-amd64-9.9.8", "angou-linux-amd64-9.9.8-dev"
+	// test does not depend on the version under test being a pre-release. They
+	// carry the host platform so the installer, which selects by platform,
+	// considers them at all.
+	release := "angou-" + hostPlatform() + "-9.9.8"
+	prerelease := "angou-" + hostPlatform() + "-9.9.8-dev"
 	for _, suffix := range []string{"", ".sig", ".json"} {
-		copyOver(t, filepath.Join(dir, e.binaryName(t, "linux-amd64")+suffix), filepath.Join(dir, release+suffix))
-		copyOver(t, filepath.Join(dir, e.binaryName(t, "linux-amd64")+suffix), filepath.Join(dir, prerelease+suffix))
+		copyOver(t, filepath.Join(dir, e.binaryName(t, hostPlatform())+suffix), filepath.Join(dir, release+suffix))
+		copyOver(t, filepath.Join(dir, e.binaryName(t, hostPlatform())+suffix), filepath.Join(dir, prerelease+suffix))
 	}
 
 	r := e.runInstaller(t, "")
@@ -447,7 +481,7 @@ func TestReleaseAcceptsAGPGExportedProtectedKey(t *testing.T) {
 
 	dist := filepath.Join(e.work, "dist")
 	mkdirAll(t, dist)
-	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
+	writeFakeBinary(t, filepath.Join(dist, "angou-"+hostPlatform()))
 
 	// Two passphrases: the store's, then the signing key's.
 	e.mustRunWithLines([]string{e.recovery, keyPassphrase},
@@ -519,9 +553,7 @@ func TestPinnedBuildRefusesAnotherKey(t *testing.T) {
 // would, which means passphrase protected.
 func exportGPGSigningKey(t *testing.T, e *env, passphrase string) string {
 	t.Helper()
-	gnupgHome := filepath.Join(e.work, "gnupg-signing")
-	mkdirAll(t, gnupgHome)
-	require.NoError(t, os.Chmod(gnupgHome, 0o700))
+	gnupgHome := gnupgHomeDir(t)
 
 	gpg := func(args ...string) []byte {
 		cmd := exec.Command("gpg", args...)

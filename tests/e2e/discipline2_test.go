@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -57,6 +58,13 @@ func TestNoSecretsAtDebugVerbosity(t *testing.T) {
 // has to run on a machine with nothing installed, so it must not be linked
 // against anything.
 func TestStaticBinaryHasNoDynamicDependencies(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("the darwin CLI links Security.framework for the Keychain backend and " +
+			"is deliberately not static; R6.2's static-artifact property is a Linux " +
+			"property (spec 003 R1.3 amendment). A CGO_ENABLED=0 darwin binary links " +
+			"libSystem regardless, so it was never static here to assert.")
+	}
+
 	bin := os.Getenv(BinEnv)
 	require.NotEmpty(t, bin)
 
@@ -86,9 +94,7 @@ func TestGPGCannotReadTheKeyBundle(t *testing.T) {
 	e.initStore()
 
 	bundle := e.storePath("bootstrap", "keybundle.json")
-	gnupgHome := filepath.Join(e.work, "gnupg-bundle")
-	mkdirAll(t, gnupgHome)
-	require.NoError(t, os.Chmod(gnupgHome, 0o700))
+	gnupgHome := gnupgHomeDir(t)
 
 	cmd := exec.Command("gpg", "--batch", "--quiet", "--passphrase", e.recovery,
 		"--pinentry-mode", "loopback", "--decrypt", bundle)

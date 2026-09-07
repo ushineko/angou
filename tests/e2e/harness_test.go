@@ -50,6 +50,11 @@ type env struct {
 	// keyringBackend pins which keyring API the child uses, so a test can
 	// exercise one rather than whichever the machine happens to prefer.
 	keyringBackend string
+	// keychainService points the child's macOS Keychain backend at a throwaway
+	// service namespace within the login keychain, so a darwin keyring test can
+	// bootstrap and reopen against the real Keychain without touching angou's own
+	// items. Empty off macOS and for tests that want no keyring.
+	keychainService string
 	// cachedVersion is the version the binary under test reports.
 	cachedVersion string
 	// noStoreEnv drops $ANGOU_STORE from the child's environment. Set by tests
@@ -270,7 +275,15 @@ func (e *env) childEnv() []string {
 	// to autolaunch and finds the developer's real session, and with it their
 	// real wallet. A test that means to have no keyring must be given an address
 	// that cannot resolve.
-	if e.withKeyring {
+	switch {
+	case e.keychainService != "":
+		// macOS keyring test: reach the real Keychain, but scoped to a throwaway
+		// service namespace so it never touches angou's own items. No bus is
+		// involved, so DBUS is left as the dead address for good measure.
+		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+
+			filepath.Join(base, "no-such-bus"))
+		out = append(out, keyring.KeychainServiceEnv+"="+e.keychainService)
+	case e.withKeyring:
 		addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
 		if addr == "" {
 			e.t.Fatal("withKeyring was set but DBUS_SESSION_BUS_ADDRESS is not available")
@@ -279,7 +292,7 @@ func (e *env) childEnv() []string {
 		if e.keyringBackend != "" {
 			out = append(out, keyring.BackendEnv+"="+e.keyringBackend)
 		}
-	} else {
+	default:
 		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+
 			filepath.Join(base, "no-such-bus"))
 		// The dead bus denies the keyring on Linux, but the macOS Keychain is not

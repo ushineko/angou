@@ -23,6 +23,16 @@ import (
 // description, and names no secret.
 const keychainLabel = "angou store unlock passphrase"
 
+// serviceName is the Keychain service angou's items are grouped under: Folder by
+// default, or the value of KeychainServiceEnv when set. Every read and write
+// goes through it so a caller that overrides the namespace overrides it wholly.
+func serviceName() string {
+	if s := os.Getenv(KeychainServiceEnv); s != "" {
+		return s
+	}
+	return Folder
+}
+
 // keychain is the macOS Keychain backend. It holds no connection: SecItem calls
 // address the login keychain directly, so there is nothing to keep open or to
 // close. The type exists to satisfy the Keyring interface.
@@ -53,7 +63,7 @@ func Available() bool {
 	}
 	query := gokeychain.NewItem()
 	query.SetSecClass(gokeychain.SecClassGenericPassword)
-	query.SetService(Folder)
+	query.SetService(serviceName())
 	query.SetAccount("angou-availability-probe")
 	query.SetMatchLimit(gokeychain.MatchLimitOne)
 	query.SetReturnData(false)
@@ -70,7 +80,7 @@ func ValidateBackend() error { return nil }
 func (k *keychain) Get(storeID string) ([]byte, error) {
 	query := gokeychain.NewItem()
 	query.SetSecClass(gokeychain.SecClassGenericPassword)
-	query.SetService(Folder)
+	query.SetService(serviceName())
 	query.SetAccount(EntryName(storeID))
 	query.SetMatchLimit(gokeychain.MatchLimitOne)
 	query.SetReturnData(true)
@@ -96,7 +106,7 @@ func (k *keychain) Get(storeID string) ([]byte, error) {
 // the keyring entry the only copy, so a Set that silently failed to replace
 // would leave the old secret wrapping a key it no longer matches.
 func (k *keychain) Set(storeID string, secret []byte) error {
-	item := gokeychain.NewGenericPassword(Folder, EntryName(storeID), keychainLabel, secret, "")
+	item := gokeychain.NewGenericPassword(serviceName(), EntryName(storeID), keychainLabel, secret, "")
 	item.SetSynchronizable(gokeychain.SynchronizableNo)
 	item.SetAccessible(gokeychain.AccessibleWhenUnlocked)
 
@@ -104,7 +114,7 @@ func (k *keychain) Set(storeID string, secret []byte) error {
 	if errors.Is(err, gokeychain.ErrorDuplicateItem) {
 		query := gokeychain.NewItem()
 		query.SetSecClass(gokeychain.SecClassGenericPassword)
-		query.SetService(Folder)
+		query.SetService(serviceName())
 		query.SetAccount(EntryName(storeID))
 
 		update := gokeychain.NewItem()
@@ -128,7 +138,7 @@ func (k *keychain) Set(storeID string, secret []byte) error {
 func (k *keychain) Remove(storeID string) error {
 	item := gokeychain.NewItem()
 	item.SetSecClass(gokeychain.SecClassGenericPassword)
-	item.SetService(Folder)
+	item.SetService(serviceName())
 	item.SetAccount(EntryName(storeID))
 
 	err := gokeychain.DeleteItem(item)

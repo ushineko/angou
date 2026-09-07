@@ -8,12 +8,34 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ushineko/angou/internal/keybundle"
 )
+
+// gnupgHomeDir returns a throwaway GNUPGHOME whose path is short enough for
+// gpg-agent's socket. The agent binds $GNUPGHOME/S.gpg-agent, and a macOS temp
+// dir under /var/folders/... overruns the 104-byte sun_path limit, so gpg-agent
+// cannot start there ("failed to start gpg-agent ... General error"). /tmp (a
+// symlink to /private/tmp) is short enough. On Linux the ordinary temp dir is
+// fine, and t.TempDir cleans itself up.
+func gnupgHomeDir(t *testing.T) string {
+	t.Helper()
+	var dir string
+	if runtime.GOOS == "darwin" {
+		d, err := os.MkdirTemp("/tmp", "ag-gpg-")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.RemoveAll(d) })
+		dir = d
+	} else {
+		dir = t.TempDir()
+	}
+	require.NoError(t, os.Chmod(dir, 0o700))
+	return dir
+}
 
 // TestGPGDecryptsABlobBody covers R1.5, which is a recovery guarantee rather
 // than an interoperability nicety: if angou is unavailable or unusable, the
@@ -40,9 +62,7 @@ func TestGPGDecryptsABlobBody(t *testing.T) {
 	exported, err := bundle.Open([]byte(e.recovery))
 	require.NoError(t, err)
 
-	gnupgHome := filepath.Join(e.work, "gnupg")
-	mkdirAll(t, gnupgHome)
-	require.NoError(t, os.Chmod(gnupgHome, 0o700))
+	gnupgHome := gnupgHomeDir(t)
 
 	keyPath := filepath.Join(e.work, "identity.gpg")
 	require.NoError(t, os.WriteFile(keyPath, exported, 0o600))

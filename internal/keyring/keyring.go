@@ -44,6 +44,18 @@ type Keyring interface {
 // angou confines itself to.
 const Folder = "angou"
 
+// KeychainServiceEnv names a macOS Keychain service to group angou's items under
+// instead of the default (Folder). Setting it changes the namespace and nothing
+// about the protection, so it is a reasonable knob for a user who wants angou's
+// keychain items grouped under a name of their own.
+//
+// It is also how the end-to-end suite isolates on macOS: the Keychain has no
+// non-interactive way to make a throwaway keychain file, so the suite points a
+// run at a throwaway service namespace within the login keychain and removes
+// what it wrote — the same shape as the KWallet test's per-run entry. It has no
+// effect off macOS.
+const KeychainServiceEnv = "ANGOU_KEYCHAIN_SERVICE"
+
 // WalletEnv names the wallet to use instead of the session's default one.
 //
 // It exists so the end-to-end suite can operate a wallet of its own and delete

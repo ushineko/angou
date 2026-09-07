@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -96,14 +97,15 @@ func TestInstallerIgnoresTheGUI(t *testing.T) {
 	// considers available — and the listing is where a misparsed GUI name would
 	// surface.
 	for _, suffix := range []string{"", ".sig", ".json"} {
-		require.NoError(t, os.Remove(e.storePath("bootstrap", e.binaryName(t, "linux-amd64")+suffix)))
+		require.NoError(t, os.Remove(e.storePath("bootstrap", e.binaryName(t, hostPlatform())+suffix)))
 	}
 
 	r := e.runInstaller(t, "")
 	require.NotZero(t, r.code, "with no CLI for this platform the installer must refuse")
 	listed := r.stdout + r.stderr
 
-	require.Contains(t, listed, "darwin/arm64", "it should still list the platform it has")
+	require.Contains(t, listed, platformSlash(otherReleasedPlatform()),
+		"it should still list the platform it has")
 	require.NotContains(t, listed, "gui/",
 		"the installer must not read a GUI build as a platform:\n%s", listed)
 	require.NotContains(t, listed, "gui-linux",
@@ -165,6 +167,13 @@ func TestRetentionKeepsTheCLIWhenGUIsAccumulate(t *testing.T) {
 // for this platform it arrives with a desktop entry and an icon, the same three
 // files install.sh places.
 func TestBareMachineAlsoInstallsTheGUIWhenPresent(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("this asserts the freedesktop GUI install (a .desktop entry and its " +
+			"StartupWMClass), which is a Linux path, and the fixture stocks the GUI " +
+			"only for linux-amd64. macOS GUI packaging is an .app bundle, delivered " +
+			"and tested by spec 003 R5.")
+	}
+
 	e := releasedStoreWithGUI(t)
 
 	r := e.runInstaller(t, "")
