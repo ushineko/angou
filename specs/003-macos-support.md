@@ -238,15 +238,15 @@ proposed to and approved by the user, not chosen unilaterally.
 - [ ] R1.3 — macOS CLI builds with `CGO_ENABLED=1` and links Security.framework; spec 002 R1.3 and spec 001 R6.2 amended to scope the CGO-free rule to Linux; linux CLI and `build-static` unchanged
 - [ ] R1.4 — secret zeroed on the macOS path; no secret in any log; Keychain errors carry no secret
 - [ ] R1.5 — locked/denied keychain falls back to recovery passphrase or agent, without hang or crash
-- [ ] R2.1 — `peer_darwin.go` implements `checkPeer` over `LOCAL_PEERCRED`/`getpeereid`; `peer_other.go` constrained to `!linux && !darwin`
-- [ ] R2.2 — agent authenticates peer uid against its own and refuses a mismatch
+- [x] R2.1 — `peer_darwin.go` implements `checkPeer` over `LOCAL_PEERCRED` (via `unix.GetsockoptXucred`); `peer_other.go` constrained to `!linux && !darwin` — pass 2a
+- [x] R2.2 — agent authenticates peer uid against its own and refuses a mismatch — pass 2a; `TestAgentSocketExcludesOtherUsers` now exercises the real path
 - [ ] R2.3 — README agent language updated
 - [x] R3.1 — `make e2e` compiles on darwin; backend-selection constants reachable on both platforms — done in pass 1 (backend-selection constants hoisted to `internal/keyring/keyring.go`). Suite now compiles and runs on macOS: 126 pass / 15 fail / 3 skip. The 15 failures are the documented platform gaps addressed by later passes: agent peer-auth (4, R2), Linux-only `statically linked` assertion (1, R3.2 — confirms R6.2's "no static binary on macOS"), bootstrap gpg-check + installer chain (7, R3.2), and gpg-agent socket-path failure in the throwaway `GNUPGHOME` (3, R3.2). None involve the hoisted constants.
 - [ ] R3.2 — e2e suite passes on macOS; Linux-only tests gain a darwin path or skip with a stated reason
 - [ ] R3.3 — parity test passes on macOS unchanged
 - [ ] R3.4 — `make e2e` run on macOS and recorded in the validation report
-- [ ] R4.1 — `mlock` implemented on the macOS agent path
-- [ ] R4.2 — headroom check implemented on darwin or documented as deliberately absent
+- [x] R4.1 — `mlockall` implemented on the macOS agent path (pure `x/sys`, no cgo) — pass 2a
+- [x] R4.2 — headroom check documented as deliberately absent on darwin (`memory_darwin.go`; no cheap MemAvailable/cgroup on macOS) — pass 2a
 - [ ] R4.3 — memory-hardening claims honest on macOS
 - [ ] R5.1 — `make` builds `angou-gui.app` with a generated `Info.plist` carrying version and commit
 - [ ] R5.2 — `.icns` generated from `packaging/angou.svg`
