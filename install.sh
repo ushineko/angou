@@ -5,10 +5,15 @@
 
 set -euo pipefail
 
+OS="$(uname -s)"
+
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
 MIME_DIR="${HOME}/.local/share/mime/packages"
 ICON_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
+# macOS installs the GUI as an .app bundle into the per-user Applications folder,
+# which needs no sudo, rather than as a bare binary plus a .desktop entry.
+APP_BUNDLE_DIR="${HOME}/Applications"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SIGNING_KEY="${HOME}/.config/angou/release-signing.asc"
@@ -62,6 +67,14 @@ run() {
     else
         "$@"
     fi
+}
+
+# install_file <mode> <src> <dst>. install(1) differs across platforms: BSD
+# install (macOS) has no -D, so create the destination directory first and then
+# install with the mode. Works on GNU and BSD alike, and honours --dry-run.
+install_file() {
+    run mkdir -p "$(dirname "$3")"
+    run install -m"$1" "$2" "$3"
 }
 
 echo "Installing angou from ${REPO_DIR} ..."
@@ -125,21 +138,46 @@ echo "Building the CLI ..."
 run make -C "$REPO_DIR" build-static RELEASE_KEY="$RELEASE_KEY"
 
 echo "Installing the CLI to ${BIN_DIR} ..."
-run install -Dm755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
+install_file 755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
 
 # The GUI is installed by default, but a failure to build it must not take the
 # CLI installation down with it. The CLI is the artifact everything else depends
 # on — bootstrap, recovery on a bare machine — and a missing C toolchain is a
 # reason to skip the GUI, not a reason to leave the machine without angou.
-if [ "$WITH_GUI" -eq 1 ]; then
+if [ "$WITH_GUI" -eq 1 ] && [ "$OS" = "Darwin" ]; then
+    echo "Building the desktop GUI app bundle ..."
+    # RELEASE_KEY belongs here as much as on the CLI build: the GUI installs
+    # binaries from a store too, and a GUI built without it refuses every one of
+    # them while the CLI beside it accepts them.
+    if [ "$DRY_RUN" -eq 1 ] || make -C "$REPO_DIR" build-app RELEASE_KEY="$RELEASE_KEY"; then
+        echo "Installing angou-gui.app to ${APP_BUNDLE_DIR} ..."
+        run mkdir -p "$APP_BUNDLE_DIR"
+        run rm -rf "${APP_BUNDLE_DIR}/angou-gui.app"
+        run cp -R "${REPO_DIR}/dist/angou-gui.app" "${APP_BUNDLE_DIR}/angou-gui.app"
+        # Tell Launch Services about the bundle so Finder shows the icon and knows
+        # the .angou association without waiting for a rescan. Best-effort.
+        LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+        if [ -x "$LSREGISTER" ]; then
+            run "$LSREGISTER" -f "${APP_BUNDLE_DIR}/angou-gui.app"
+        fi
+    else
+        WITH_GUI=0
+        echo
+        echo "The GUI did not build, so it was skipped. The CLI is unaffected and does" >&2
+        echo "everything the GUI does. Building it needs CGO and the Xcode command-line" >&2
+        echo "tools:  xcode-select --install" >&2
+        echo "Re-run with --no-gui to skip it without this message." >&2
+        echo
+    fi
+elif [ "$WITH_GUI" -eq 1 ]; then
     echo "Building the desktop GUI ..."
     # RELEASE_KEY belongs here as much as on the CLI build: the GUI installs
     # binaries from a store too, and a GUI built without it refuses every one of
     # them while the CLI beside it accepts them.
     if [ "$DRY_RUN" -eq 1 ] || make -C "$REPO_DIR" build-gui RELEASE_KEY="$RELEASE_KEY"; then
-        run install -Dm755 "${REPO_DIR}/angou-gui" "${BIN_DIR}/angou-gui"
-        run install -Dm644 "${REPO_DIR}/packaging/io.ushineko.angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop"
-        run install -Dm644 "${REPO_DIR}/packaging/angou.svg" "${ICON_DIR}/angou.svg"
+        install_file 755 "${REPO_DIR}/angou-gui" "${BIN_DIR}/angou-gui"
+        install_file 644 "${REPO_DIR}/packaging/io.ushineko.angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop"
+        install_file 644 "${REPO_DIR}/packaging/angou.svg" "${ICON_DIR}/angou.svg"
     else
         WITH_GUI=0
         echo
@@ -153,22 +191,30 @@ if [ "$WITH_GUI" -eq 1 ]; then
     fi
 fi
 
-echo "Installing file-type rules ..."
-run install -Dm644 "${REPO_DIR}/packaging/angou.xml" "${MIME_DIR}/angou.xml"
-if command -v update-mime-database >/dev/null 2>&1; then
-    run update-mime-database "${HOME}/.local/share/mime"
-fi
-if [ "$WITH_GUI" -eq 1 ] && command -v update-desktop-database >/dev/null 2>&1; then
-    run update-desktop-database "${APP_DIR}"
-fi
-
-echo "Installing the file(1) magic entry ..."
-if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  would append the angou magic entry to ${HOME}/.magic"
-elif [ -f "${HOME}/.magic" ] && grep -q "ANGOU1" "${HOME}/.magic"; then
-    echo "  already present, leaving ${HOME}/.magic alone"
+if [ "$OS" = "Darwin" ]; then
+    # On macOS the .angou association travels in the app bundle's Info.plist (the
+    # exported UTI), registered with Launch Services when the bundle was copied
+    # above. There is no shared MIME database, no .desktop entry, and no file(1)
+    # magic file to install as there is on Linux.
+    echo "File-type rules travel in the app bundle on macOS; nothing else to install."
 else
-    cat "${REPO_DIR}/packaging/magic" >> "${HOME}/.magic"
+    echo "Installing file-type rules ..."
+    install_file 644 "${REPO_DIR}/packaging/angou.xml" "${MIME_DIR}/angou.xml"
+    if command -v update-mime-database >/dev/null 2>&1; then
+        run update-mime-database "${HOME}/.local/share/mime"
+    fi
+    if [ "$WITH_GUI" -eq 1 ] && command -v update-desktop-database >/dev/null 2>&1; then
+        run update-desktop-database "${APP_DIR}"
+    fi
+
+    echo "Installing the file(1) magic entry ..."
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "  would append the angou magic entry to ${HOME}/.magic"
+    elif [ -f "${HOME}/.magic" ] && grep -q "ANGOU1" "${HOME}/.magic"; then
+        echo "  already present, leaving ${HOME}/.magic alone"
+    else
+        cat "${REPO_DIR}/packaging/magic" >> "${HOME}/.magic"
+    fi
 fi
 
 # A store that exists but has not been set up on this machine asks for the
@@ -244,7 +290,7 @@ if [ -n "$PUBLISH_TO" ] && [ -z "$RELEASE_KEY" ] && [ "$DRY_RUN" -eq 0 ]; then
     fi
     echo "Rebuilding the CLI with release key ${RELEASE_KEY} pinned ..."
     make -C "$REPO_DIR" build-static RELEASE_KEY="$RELEASE_KEY"
-    install -Dm755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
+    install_file 755 "${REPO_DIR}/angou" "${BIN_DIR}/angou"
 fi
 
 if [ -n "$PUBLISH_TO" ]; then

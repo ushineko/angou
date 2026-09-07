@@ -314,6 +314,11 @@ spec 001 R1.1, `packaging/magic`, and `packaging/angou.xml`. They are duplicated
 necessity — `file(1)` and `shared-mime-info` cannot read a Go constant. Changing one
 means changing all three, plus `internal/container`.
 
+The macOS `.app` bundle's `Info.plist` (built by `tools/make-app.sh`) is **not** a
+fourth home: the macOS type system matches a `.angou` blob by filename extension and
+MIME type, not by leading-string magic the way `file(1)` and shared-mime-info do, so
+the delimiter is not repeated there. The count stays three.
+
 ---
 
 ## Git Commit Rules

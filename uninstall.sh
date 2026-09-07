@@ -5,37 +5,59 @@
 
 set -euo pipefail
 
+OS="$(uname -s)"
+
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
 MIME_DIR="${HOME}/.local/share/mime/packages"
 ICON_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
+APP_BUNDLE_DIR="${HOME}/Applications"
 STATE_DIR="${HOME}/.local/share/angou"
 
 echo "Removing angou ..."
 
-for f in "${BIN_DIR}/angou" "${BIN_DIR}/angou-gui" \
-         "${APP_DIR}/angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop" "${MIME_DIR}/angou.xml" \
-         "${ICON_DIR}/angou.svg"; do
-    if [ -e "$f" ]; then
-        echo "  removing $f"
-        rm -f "$f"
+if [ "$OS" = "Darwin" ]; then
+    # macOS installed the CLI to ~/.local/bin and the GUI as an .app bundle in
+    # ~/Applications. There is no bare angou-gui binary, no .desktop entry, no
+    # shared MIME database, and no file(1) magic entry, so none of those are
+    # removed here — the .angou association went away with the bundle.
+    if [ -e "${BIN_DIR}/angou" ]; then
+        echo "  removing ${BIN_DIR}/angou"
+        rm -f "${BIN_DIR}/angou"
     fi
-done
+    if [ -d "${APP_BUNDLE_DIR}/angou-gui.app" ]; then
+        echo "  removing ${APP_BUNDLE_DIR}/angou-gui.app"
+        rm -rf "${APP_BUNDLE_DIR}/angou-gui.app"
+    fi
+else
+    for f in "${BIN_DIR}/angou" "${BIN_DIR}/angou-gui" \
+             "${APP_DIR}/angou.desktop" "${APP_DIR}/io.ushineko.angou.desktop" "${MIME_DIR}/angou.xml" \
+             "${ICON_DIR}/angou.svg"; do
+        if [ -e "$f" ]; then
+            echo "  removing $f"
+            rm -f "$f"
+        fi
+    done
 
-if [ -f "${HOME}/.magic" ] && grep -q "ANGOU1" "${HOME}/.magic"; then
-    echo "  removing the magic entry from ${HOME}/.magic"
-    sed -i '/ANGOU1/,+1d' "${HOME}/.magic"
+    if [ -f "${HOME}/.magic" ] && grep -q "ANGOU1" "${HOME}/.magic"; then
+        echo "  removing the magic entry from ${HOME}/.magic"
+        sed -i '/ANGOU1/,+1d' "${HOME}/.magic"
+    fi
+
+    command -v update-mime-database >/dev/null 2>&1 && \
+        update-mime-database "${HOME}/.local/share/mime" || true
+    command -v update-desktop-database >/dev/null 2>&1 && \
+        update-desktop-database "${APP_DIR}" || true
 fi
-
-command -v update-mime-database >/dev/null 2>&1 && \
-    update-mime-database "${HOME}/.local/share/mime" || true
-command -v update-desktop-database >/dev/null 2>&1 && \
-    update-desktop-database "${APP_DIR}" || true
 
 # The GUI's appearance preferences are written by the application, not by the
 # installer, so they are not removed here. They hold nothing but a color scheme,
 # a font name, and a text size — no store path, no fingerprint, no secret.
-FYNE_PREFS="${HOME}/.config/fyne/io.ushineko.angou"
+if [ "$OS" = "Darwin" ]; then
+    FYNE_PREFS="${HOME}/Library/Preferences/fyne/io.ushineko.angou"
+else
+    FYNE_PREFS="${HOME}/.config/fyne/io.ushineko.angou"
+fi
 if [ -d "$FYNE_PREFS" ]; then
     echo
     echo "The GUI's saved appearance settings are still in:"

@@ -21,7 +21,21 @@
 #
 # Requires kdotool (Wayland's xdotool), spectacle, and python3 with Pillow, all present
 # on a normal KDE desktop except Pillow.
+#
+# This is Linux/KDE-only. It drives the window through kdotool and captures with
+# spectacle, neither of which exists on macOS, and it forces the Breeze Dark
+# colour scheme so two refreshes on two machines produce the same image. The
+# README screenshot set is therefore captured on Linux; a macOS capture path
+# (screencapture + osascript) is a separate piece of work and is not this script
+# (spec 003 R7.1).
 set -euo pipefail
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "screenshot.sh is Linux/KDE-only: it drives kdotool and spectacle and forces" >&2
+    echo "Breeze Dark, none of which exist on macOS. The README screenshots are captured" >&2
+    echo "on Linux. A macOS capture path is not implemented (spec 003 R7.1)." >&2
+    exit 2
+fi
 
 CLASS="io.ushineko.angou"
 # Everything the captures show comes from a store this script builds and throws

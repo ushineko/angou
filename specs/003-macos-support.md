@@ -248,14 +248,14 @@ proposed to and approved by the user, not chosen unilaterally.
 - [x] R4.1 — `mlockall` implemented on the macOS agent path (pure `x/sys`, no cgo) — pass 2a
 - [x] R4.2 — headroom check documented as deliberately absent on darwin (`memory_darwin.go`; no cheap MemAvailable/cgroup on macOS) — pass 2a
 - [ ] R4.3 — memory-hardening claims honest on macOS
-- [ ] R5.1 — `make` builds `angou-gui.app` with a generated `Info.plist` carrying version and commit
-- [ ] R5.2 — `.icns` generated from `packaging/angou.svg`
-- [ ] R5.3 — `.angou` UTI declared in `Info.plist`; format-literal convention updated to count it
-- [ ] R5.4 — bundle launches from Finder/Dock with Dock icon and menu bar; `.angou` double-click opens it; Gatekeeper caveat documented
-- [ ] R6.1 — `install.sh` takes a Darwin path (CLI to PATH, `.app` to Applications), skipping freedesktop steps
-- [ ] R6.2 — `uninstall.sh` reverses exactly the macOS install; never removes keys/store data unasked; both keep idempotence and `--dry-run`
-- [ ] R6.3 — macOS config/state location decided and documented
-- [ ] R7.1 — `screenshot.sh` guards Linux-only and exits with that message on Darwin
+- [x] R5.1 — `make build-app` (darwin-guarded) assembles `angou-gui.app` via `tools/make-app.sh` with a generated `Info.plist` carrying `CFBundleShortVersionString`=VERSION and `AngouCommit`=commit; `plutil -lint` clean — pass 3
+- [x] R5.2 — `.icns` generated from `packaging/angou.svg` by `tools/make-icns.sh` using only built-ins (qlmanage/sips/iconutil), no dependency — pass 3
+- [x] R5.3 — `.angou` UTI (`io.ushineko.angou.blob`, conforms to `public.data`, extension+MIME) declared in `Info.plist` with a `CFBundleDocumentTypes` handler. The magic literal is NOT added: macOS matches by extension/MIME, not leading-string magic, so the count stays three — noted in `.claude/CLAUDE.md` — pass 3
+- [x] R5.4 — bundle launches from Finder/Dock (verified via `open`, quits cleanly), Fyne gives it a Dock icon and menu bar; the `.angou` UTI gives blobs the angou icon and angou-gui as default handler. Double-click launches the app but does not open the specific blob: the GUI's model is the store, not a loose file, and Fyne has no open-file event wired — documented, to be covered in R8. Gatekeeper (unsigned) caveat documented in R8 — pass 3
+- [x] R6.1 — `install.sh` branches on `uname -s`: CLI to `~/.local/bin`, `.app` to `~/Applications` (+ `lsregister`), freedesktop steps skipped. Also fixes a real portability bug — BSD `install` has no `-D`, so a portable `install_file` helper replaces `install -Dm…`. Real install verified on this Mac — pass 3
+- [x] R6.2 — `uninstall.sh` branches on darwin: removes the CLI and the `.app`, skips freedesktop, points the Fyne-prefs note at `~/Library/Preferences/fyne`; keys/store untouched (printed, not removed). Real uninstall verified clean; shellcheck clean — pass 3
+- [x] R6.3 — config/state stays at `~/.config` and `~/.local/share` on macOS (parity with Linux, no code change), per the decision recorded here — pass 3
+- [x] R7.1 — `screenshot.sh` exits (code 2) on Darwin with a message that it is Linux/KDE-only and a macOS path is not implemented — pass 3
 - [ ] R8.1 — README states macOS support, dependencies, and the Keychain backend
 - [ ] R8.2 — unsigned-bundle, memory-check, and screenshot limitations documented
 - [ ] R8.3 — changelog entry added; `VERSION`/`README.md` bumped together with user-approved number

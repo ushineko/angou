@@ -113,6 +113,19 @@ build-static: ## Build the bootstrap CLI (CGO-free on Linux; Keychain-linked on 
 build-gui: ## Build the desktop navigator (requires CGO)
 	CGO_ENABLED=1 go build -ldflags='$(LDFLAGS)' -trimpath -o angou-gui ./cmd/angou-gui
 
+.PHONY: build-app
+build-app: ## Assemble the macOS app bundle around the GUI (spec 003 R5)
+	@if [ "$(HOST_OS)" != "darwin" ]; then \
+		echo "build-app is macOS-only: it assembles a .app bundle. Host is $(HOST_OS)." >&2; \
+		exit 1; \
+	fi
+	$(MAKE) build-gui
+	@mkdir -p dist
+	@chmod +x tools/make-icns.sh tools/make-app.sh
+	@tools/make-icns.sh packaging/angou.svg dist/angou.icns
+	@tools/make-app.sh angou-gui dist/angou.icns "$(VERSION)" "$(COMMIT)" dist
+	@echo "built dist/angou-gui.app"
+
 .PHONY: build-all
 build-all: ## Build CLI binaries for every platform, plus the host's GUI
 	@# The Keychain-linked darwin CLI needs cgo and a macOS SDK, so it can only be
