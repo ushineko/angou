@@ -282,6 +282,11 @@ func (e *env) childEnv() []string {
 	} else {
 		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+
 			filepath.Join(base, "no-such-bus"))
+		// The dead bus denies the keyring on Linux, but the macOS Keychain is not
+		// on a bus, so a child on a Mac would find the developer's real login
+		// keychain and write to it. ANGOU_KEYRING=none forces "no keyring" on
+		// every platform, which is what "withKeyring is false" is meant to mean.
+		out = append(out, keyring.BackendEnv+"="+keyring.BackendNone)
 	}
 	for k, v := range xdg {
 		out = append(out, k+"="+v)

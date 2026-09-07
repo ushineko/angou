@@ -65,6 +65,13 @@ const (
 	BackendEnv = "ANGOU_KEYRING"
 	// BackendAuto is the default: the Secret Service, then KWallet.
 	BackendAuto = "auto"
+	// BackendNone forces "no keyring" on every platform: Open reports
+	// ErrUnavailable and Available reports false, so the command falls back to
+	// the recovery passphrase. It is a real knob for a user who would rather not
+	// use a keyring on a given machine, and it is how the end-to-end suite gets a
+	// child with no keyring on macOS, where the keychain is not on a bus the way
+	// KWallet is and so cannot be denied by pointing at a dead one.
+	BackendNone = "none"
 	// BackendSecretService is the cross-desktop org.freedesktop.secrets API.
 	BackendSecretService = "secretservice"
 	// BackendKWallet is the KDE-specific org.kde.kwalletd6 API.

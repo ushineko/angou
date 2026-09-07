@@ -478,10 +478,19 @@ R6.1 Go, following `~/.claude/policies/languages/go.md` and the conventions of
 
 R6.2 Two binaries:
 
-- `angou` — CLI. Built `CGO_ENABLED=0` for a fully static artifact. This is the
-  binary stashed per R5.3 and is sufficient for bootstrap on its own.
+- `angou` — CLI. Built `CGO_ENABLED=0` for a fully static artifact **on Linux**.
+  This is the binary stashed per R5.3 and is sufficient for bootstrap on its own.
 - `angou-gui` — desktop navigator over the store. Built separately; may require
   CGO. Never required for bootstrap.
+
+> **Amendment (spec 003 R1.3).** "Fully static" is a Linux property and the CGO-free
+> rule scopes to where it is attainable at no cost. The macOS CLI is built with
+> `CGO_ENABLED=1` because its Keychain backend links Security.framework, and a
+> `CGO_ENABLED=0` darwin binary was never static anyway — it still links `libSystem`.
+> The Linux CLI is unchanged. The store may therefore carry a Keychain-linked darwin
+> CLI only for a machine one was built on; every other darwin binary in the store is
+> the CGO-free recovery stub, which has no keyring but bootstraps fine, since bootstrap
+> needs the recovery passphrase, not a keyring.
 
 R6.3 No subprocess invocation of `gpg`, `gpg-agent`, or `kwallet-query` in the normal
 path. OpenPGP via `github.com/ProtonMail/go-crypto/openpgp`; the keyring via

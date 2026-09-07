@@ -8,6 +8,7 @@ require (
 	fyne.io/fyne/v2 v2.8.1
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/godbus/dbus/v5 v5.2.2
+	github.com/keybase/go-keychain v0.0.1
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1

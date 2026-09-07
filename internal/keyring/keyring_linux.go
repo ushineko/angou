@@ -47,6 +47,8 @@ type kwallet struct {
 // running.
 func Open() (Keyring, error) {
 	switch backend := os.Getenv(BackendEnv); backend {
+	case BackendNone:
+		return nil, ErrUnavailable
 	case BackendSecretService:
 		return openSecretService()
 	case BackendKWallet:
@@ -119,6 +121,8 @@ func openKWallet() (Keyring, error) {
 // more, under a short timeout, so it cannot prompt and cannot wait.
 func Available() bool {
 	switch backend := os.Getenv(BackendEnv); backend {
+	case BackendNone:
+		return false
 	case BackendSecretService:
 		return secretServiceAvailable()
 	case BackendKWallet:
@@ -141,7 +145,7 @@ func Available() bool {
 // only a typo.
 func ValidateBackend() error {
 	switch backend := os.Getenv(BackendEnv); backend {
-	case "", BackendAuto, BackendSecretService, BackendKWallet:
+	case "", BackendAuto, BackendNone, BackendSecretService, BackendKWallet:
 		return nil
 	default:
 		return fmt.Errorf("%w: %s=%q; use %q, %q, or %q",

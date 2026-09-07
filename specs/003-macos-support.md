@@ -233,9 +233,9 @@ proposed to and approved by the user, not chosen unilaterally.
 
 ## Acceptance criteria
 
-- [ ] R1.1 — `keyring_darwin.go` stores and retrieves the wrapped secret over the Keychain; `Available()` is true when reachable
+- [x] R1.1 — `keyring_darwin.go` stores and retrieves the wrapped secret over the Keychain (`keybase/go-keychain`, generic-password items scoped by service `angou` + per-store account); `Available()` probes without prompting — pass 2b, round-trip smoke-verified. Adds `BackendNone` ("none") as a cross-platform disable knob and the e2e no-keyring gate
 - [ ] R1.2 — bootstrap re-protects the key on macOS; subsequent commands do not prompt for the recovery passphrase
-- [ ] R1.3 — macOS CLI builds with `CGO_ENABLED=1` and links Security.framework; spec 002 R1.3 and spec 001 R6.2 amended to scope the CGO-free rule to Linux; linux CLI and `build-static` unchanged
+- [x] R1.3 — macOS CLI builds with `CGO_ENABLED=1` and links Security.framework (confirmed via `otool -L`); spec 002 R1.3 and spec 001 R6.2 amended to scope the CGO-free rule to Linux; linux CLI stays CGO-free; `build-all` gives the host darwin arch the Keychain build and other darwin arches the recovery stub — pass 2b
 - [ ] R1.4 — secret zeroed on the macOS path; no secret in any log; Keychain errors carry no secret
 - [ ] R1.5 — locked/denied keychain falls back to recovery passphrase or agent, without hang or crash
 - [x] R2.1 — `peer_darwin.go` implements `checkPeer` over `LOCAL_PEERCRED` (via `unix.GetsockoptXucred`); `peer_other.go` constrained to `!linux && !darwin` — pass 2a

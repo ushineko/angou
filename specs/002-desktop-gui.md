@@ -94,6 +94,15 @@ on evidence, once there was something to look at.
 `CGO_ENABLED=0` and to link statically, because spec 001's bootstrap and bare-machine
 claims depend on it. No change in this spec may make the CLI require CGO.
 
+> **Amendment (spec 003 R1.3).** This holds on **Linux**, where a CGO-free build is a
+> genuinely static, dependency-free bootstrap artifact. On macOS the CLI is built with
+> `CGO_ENABLED=1`: the Keychain backend links Security.framework, there is no pure-Go
+> path to it, and a CGO-free darwin binary was never static regardless (it links
+> `libSystem`). The bare-machine bootstrap claim is unaffected — it is a Linux claim,
+> and the darwin recovery stub (`keyring_darwin_nocgo.go`) still builds CGO-free for
+> cross-compilation. "Confined to the GUI" becomes "confined to the GUI on Linux; the
+> macOS CLI also links Security.framework."
+
 ### R2 — Packaging
 
 **R2.1** The GUI is a separate binary, `cmd/angou-gui`, built by `make build-gui` with

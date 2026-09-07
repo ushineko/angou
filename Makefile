@@ -94,21 +94,43 @@ coverage: ## Run all tests and open a coverage report in the default browser
 build: ## Build the CLI for the host platform
 	go build -ldflags='$(LDFLAGS)' -trimpath -o angou ./cmd/angou
 
+# The CLI is CGO-free on Linux, where CGO_ENABLED=0 yields a genuinely static,
+# dependency-free bootstrap artifact (spec 001 R6.2). On macOS it cannot be: the
+# Keychain backend links Security.framework through cgo (spec 003 R1.3), and a
+# CGO_ENABLED=0 darwin binary was never static anyway — it still links libSystem.
+# So the darwin CLI is built with cgo and the linux CLI without.
+HOST_OS := $(shell go env GOOS)
+CLI_CGO := 0
+ifeq ($(HOST_OS),darwin)
+CLI_CGO := 1
+endif
+
 .PHONY: build-static
-build-static: ## Build the static CGO-free CLI (the bootstrap artifact, spec 001 R6.2)
-	CGO_ENABLED=0 go build -ldflags='$(LDFLAGS)' -trimpath -o angou ./cmd/angou
+build-static: ## Build the bootstrap CLI (CGO-free on Linux; Keychain-linked on macOS)
+	CGO_ENABLED=$(CLI_CGO) go build -ldflags='$(LDFLAGS)' -trimpath -o angou ./cmd/angou
 
 .PHONY: build-gui
 build-gui: ## Build the desktop navigator (requires CGO)
 	CGO_ENABLED=1 go build -ldflags='$(LDFLAGS)' -trimpath -o angou-gui ./cmd/angou-gui
 
 .PHONY: build-all
-build-all: ## Build static CLI binaries for every platform, plus the host's GUI
-	@set -e; for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
-		os=$${p%/*}; arch=$${p#*/}; \
-		echo "building $$os/$$arch ..."; \
-		mkdir -p dist; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
+build-all: ## Build CLI binaries for every platform, plus the host's GUI
+	@# The Keychain-linked darwin CLI needs cgo and a macOS SDK, so it can only be
+	@# produced on a Mac, and only for the arch being built on (cross-arch cgo is
+	@# more trouble than it earns here). Every other darwin binary is the CGO-free
+	@# recovery stub: it has no keyring, which is the state bootstrap leaves behind
+	@# anyway, so recovery from the store is unaffected. This mirrors the GUI's
+	@# host-only rule (spec 002 R2.2.1). Linux is CGO-free on every host.
+	@set -e; host=$$(go env GOOS); hostarch=$$(go env GOARCH); mkdir -p dist; \
+	for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
+		os=$${p%/*}; arch=$${p#*/}; cgo=0; note=; \
+		if [ "$$os" = darwin ] && [ "$$host" = darwin ] && [ "$$arch" = "$$hostarch" ]; then \
+			cgo=1; note=" (with Keychain)"; \
+		elif [ "$$os" = darwin ]; then \
+			note=" (CGO-free recovery stub: no Keychain)"; \
+		fi; \
+		echo "building $$os/$$arch ...$$note"; \
+		CGO_ENABLED=$$cgo GOOS=$$os GOARCH=$$arch \
 			go build -ldflags='$(LDFLAGS)' -trimpath -o dist/angou-$$os-$$arch ./cmd/angou; \
 	done
 	@# The GUI is built for this machine only. It needs CGO, so cross-compiling
