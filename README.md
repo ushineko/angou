@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.3.1
+**Version**: 0.4.0
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -117,12 +117,14 @@ your OS, lose the laptop: nothing is lost, because a machine's setup is rebuilt 
 store rather than recovered. Nothing derives it from your hostname or hardware either, so
 imaging the disk and reading this source is not an attack vector.
 
-angou uses the freedesktop Secret Service, which GNOME, KDE, XFCE and others all
+On Linux angou uses the freedesktop Secret Service, which GNOME, KDE, XFCE and others all
 implement, so this should work on most desktops rather than only on KDE.
-`ANGOU_KEYRING=kwallet` pins the older KDE-specific API if you would rather use it.
+`ANGOU_KEYRING=kwallet` pins the older KDE-specific API if you would rather use it. On
+macOS it uses the login Keychain; there is nothing to choose and nothing to install.
 
 This tool can still be used on a system with no keyring, but it will be less friendly to
-use.
+use. `ANGOU_KEYRING=none` forces that on any platform, for a machine where you would
+rather not use the keyring at all.
 
 ## How the encryption works
 
@@ -237,18 +239,22 @@ and deliberately so.
 
 ## Requirements
 
-- **Linux** (developed on CachyOS/Arch). Other platforms may be a later target.
-- **Secret Service** for password caching. Without it you will be asked for your recovery
-  password rather than having it cached. This is supported on most modern Linux desktop
-  environments such as KDE and GNOME.
-- **`gpg`** for the first-run bootstrap only, and not afterwards.
-- **Go 1.25+** to build from source.
+- **Linux** (developed on CachyOS/Arch) or **macOS**.
+- **A keyring** for password caching. Without it you are asked for your recovery password
+  rather than having it cached. On Linux this is the Secret Service (KDE, GNOME, and most
+  desktops), on macOS the login Keychain. Nothing to install on either.
+- **`gpg`** for the first-run bootstrap only, and not afterwards. On macOS install it with
+  `brew install gnupg`.
+- **Go 1.25+** to build from source. Building the GUI on macOS also needs the Xcode
+  command-line tools (`xcode-select --install`).
 
-The program itself has no runtime dependencies. It is a static binary and does not call
-out to `gpg`, `gpg-agent`, or `kwallet-query`.
+The CLI has no runtime dependencies on Linux — it is a static binary and does not call out
+to `gpg`, `gpg-agent`, or `kwallet-query`. On macOS the CLI links the system
+Security.framework for the Keychain, which every Mac already has; it still runs no
+subprocesses.
 
-The GUI is linked against platform-standard X11 and OpenGL libraries, and will only work
-on systems that supply those dependencies as part of their core environment.
+The GUI is linked against platform-standard graphics libraries (X11 and OpenGL on Linux,
+Cocoa and Metal on macOS) and will only work where those are present.
 
 ## Installation
 
@@ -260,8 +266,16 @@ cd angou
 ./install.sh
 ```
 
-Installs the `angou` command, the desktop entry, and the file-type rules that let the
-desktop recognize a `.angou` blob. Remove it all with `./uninstall.sh`.
+On Linux this installs the `angou` command, the desktop entry, and the file-type rules
+that let the desktop recognize a `.angou` blob. On macOS it installs `angou` to
+`~/.local/bin` and `angou-gui.app` to `~/Applications`, and the `.angou` association
+travels inside the app bundle. Remove it all with `./uninstall.sh`, which leaves your keys
+and store untouched.
+
+The macOS app bundle is not code-signed or notarized, so the first time you open it from
+Finder, Gatekeeper will warn that it is from an unidentified developer; right-click the app
+and choose Open to run it anyway. A build you made yourself on your own machine is not
+subject to this — it is only machines the bundle is copied *to* that see the warning.
 
 ## Using it
 
@@ -491,9 +505,9 @@ Two milliseconds is not worth much, and there is a trade. The keyring's copy of 
 stops being available when the keyring locks; the agent's does not, because it sits in a
 running process.
 
-The agent is for machines with no keyring — headless, a server, or a Mac until the
-Keychain backend lands. There, every command otherwise costs a passphrase prompt and a
-quarter of a second.
+The agent is for machines with no keyring — headless, a server, or one whose keyring
+(the Secret Service, or the macOS login Keychain) is locked or unreachable. There, every
+command otherwise costs a passphrase prompt and a quarter of a second.
 
 The socket is readable only by you, which keeps out other users of the machine. It does
 not keep out anything else running as **you**: while the agent is up, any process under
@@ -631,9 +645,11 @@ Every command takes `--verbose` (`-v`), which reports what angou is doing on std
 never prints a passphrase, file contents, or a digest of one.
 
 Opening the store costs about a quarter of a second and 96 MB of memory, once, unless the
-keyring or the agent is doing it for you. angou checks the memory is available — including
-any container limit on the process — and reports the shortfall rather than being killed
-part-way through.
+keyring or the agent is doing it for you. On Linux angou checks the memory is available —
+including any container limit on the process — and reports the shortfall rather than being
+killed part-way through. On macOS that pre-flight check is not run: there is no cheap
+equivalent of the Linux figures, and a desktop Mac is far less likely to be killed
+mid-derivation than a memory-capped Linux container is.
 
 ## Usage (GUI)
 
@@ -782,6 +798,44 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.4.0
+
+- **macOS is now a supported platform, not just a build target.** The CLI and GUI ran on
+  a Mac before this only in the sense that they compiled; the pieces that make the tool
+  usable were missing. This release fills them in. Linux behaviour is unchanged — every
+  addition is behind a `darwin` build constraint or a `uname` branch.
+- **The unlock password is cached in the macOS login Keychain.** Before, every command on
+  a Mac asked for the recovery passphrase and paid an Argon2id derivation, because
+  `keyring_darwin.go` was a stub. It now stores the unlock password in the login Keychain
+  the way the Linux build uses the Secret Service, so after `bootstrap` a Mac opens the
+  store on its own. The backend links Security.framework, so the macOS CLI is built with
+  CGO — a deliberate, macOS-only relaxation of the CGO-free rule, which was always a Linux
+  property (a `CGO_ENABLED=0` binary on macOS links libSystem regardless). The Linux CLI
+  is untouched.
+- **The agent works on macOS.** It authenticated its peer with `SO_PEERCRED`, which is
+  Linux-only, and so refused every connection on a Mac. It now uses `LOCAL_PEERCRED`
+  there, the macOS equivalent, and locks its memory with `mlock` as it does on Linux.
+- **`ANGOU_KEYRING=none`** forces "no keyring" on any platform, for a machine where you
+  would rather not use one.
+- **The GUI ships as an `.app` bundle.** `make build-app` assembles `angou-gui.app` with a
+  generated `Info.plist` and an icon rendered from the same SVG the window uses (via the
+  oksvg/rasterx stack fyne draws with, so the two match), and `install.sh` places it in
+  `~/Applications`. The
+  bundle declares the `.angou` type, so a blob gets angou's icon and angou-gui as its
+  default app. The bundle is unsigned: opening it on a machine other than the one that
+  built it raises Gatekeeper, which you clear by right-clicking and choosing Open.
+- **Two macOS colour schemes, `macOS Light` and `macOS Dark`**, styled after Tahoe's
+  Liquid Glass — Apple's system palette, layered greys, and rounder, airier widgets. On a
+  first run macOS defaults to whichever matches the system light/dark setting; Linux still
+  defaults to Breeze Dark. Both schemes are available from Appearance on any platform.
+- **`install.sh` and `uninstall.sh` take a macOS path** and skip the freedesktop steps
+  that do not apply there. This also fixed a portability bug — BSD `install` has no `-D`,
+  so the CLI install had been silently failing on macOS.
+- The memory pre-flight check before a key derivation is Linux-only; macOS skips it, since
+  there is no cheap equivalent of the Linux figures and a desktop Mac is unlikely to be
+  killed mid-derivation. `tools/screenshot.sh` is Linux/KDE-only and now says so on macOS
+  rather than failing obscurely.
 
 ### 0.3.1
 

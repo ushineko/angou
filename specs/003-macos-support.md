@@ -1,6 +1,6 @@
 # 003 — angou: macOS support
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 This work has no associated issue tracker ticket (personal public repository, per the
 project's issue-tracking policy). No ticket ID is required.
@@ -240,14 +240,14 @@ proposed to and approved by the user, not chosen unilaterally.
 - [x] R1.5 — an unreachable keychain reports unavailable and the caller falls back (the `BackendNone` unit test drives Open→ErrUnavailable→fallback; `Available()` returns false on any non-not-found error rather than hanging) — pass 2c
 - [x] R2.1 — `peer_darwin.go` implements `checkPeer` over `LOCAL_PEERCRED` (via `unix.GetsockoptXucred`); `peer_other.go` constrained to `!linux && !darwin` — pass 2a
 - [x] R2.2 — agent authenticates peer uid against its own and refuses a mismatch — pass 2a; `TestAgentSocketExcludesOtherUsers` now exercises the real path
-- [ ] R2.3 — README agent language updated
+- [x] R2.3 — README agent language updated (the agent is for a machine whose keyring is locked or unreachable, not "a Mac until the Keychain backend lands") — pass 4
 - [x] R3.1 — `make e2e` compiles on darwin; backend-selection constants reachable on both platforms — done in pass 1 (backend-selection constants hoisted to `internal/keyring/keyring.go`). Suite now compiles and runs on macOS: 126 pass / 15 fail / 3 skip. The 15 failures are the documented platform gaps addressed by later passes: agent peer-auth (4, R2), Linux-only `statically linked` assertion (1, R3.2 — confirms R6.2's "no static binary on macOS"), bootstrap gpg-check + installer chain (7, R3.2), and gpg-agent socket-path failure in the throwaway `GNUPGHOME` (3, R3.2). None involve the hoisted constants.
 - [x] R3.2 — `make e2e` passes on macOS (142 pass, 2 intended darwin skips: the static-binary assertion and the freedesktop GUI install); gpg tests get a short GNUPGHOME, bootstrap tests get Homebrew's gpg on PATH, platform-hardcoded tests use `hostPlatform()` — pass 2c
 - [x] R3.3 — parity test passes on macOS unchanged (in the green suite) — pass 2c
-- [ ] R3.4 — `make e2e` run on macOS and recorded in the validation report
+- [x] R3.4 — `make e2e` run on macOS (142 pass, 2 skip, 0 fail, on go1.25.13) and recorded in `validation-reports/2026-09-07-v0.4.0.md` — pass 4
 - [x] R4.1 — `mlockall` implemented on the macOS agent path (pure `x/sys`, no cgo) — pass 2a
 - [x] R4.2 — headroom check documented as deliberately absent on darwin (`memory_darwin.go`; no cheap MemAvailable/cgroup on macOS) — pass 2a
-- [ ] R4.3 — memory-hardening claims honest on macOS
+- [x] R4.3 — README states the memory pre-flight check is Linux-only and why macOS skips it — pass 4
 - [x] R5.1 — `make build-app` (darwin-guarded) assembles `angou-gui.app` via `tools/make-app.sh` with a generated `Info.plist` carrying `CFBundleShortVersionString`=VERSION and `AngouCommit`=commit; `plutil -lint` clean — pass 3
 - [x] R5.2 — `.icns` generated from `packaging/angou.svg` by `tools/make-icns.sh` using only built-ins (qlmanage/sips/iconutil), no dependency — pass 3
 - [x] R5.3 — `.angou` UTI (`io.ushineko.angou.blob`, conforms to `public.data`, extension+MIME) declared in `Info.plist` with a `CFBundleDocumentTypes` handler. The magic literal is NOT added: macOS matches by extension/MIME, not leading-string magic, so the count stays three — noted in `.claude/CLAUDE.md` — pass 3
@@ -256,9 +256,9 @@ proposed to and approved by the user, not chosen unilaterally.
 - [x] R6.2 — `uninstall.sh` branches on darwin: removes the CLI and the `.app`, skips freedesktop, points the Fyne-prefs note at `~/Library/Preferences/fyne`; keys/store untouched (printed, not removed). Real uninstall verified clean; shellcheck clean — pass 3
 - [x] R6.3 — config/state stays at `~/.config` and `~/.local/share` on macOS (parity with Linux, no code change), per the decision recorded here — pass 3
 - [x] R7.1 — `screenshot.sh` exits (code 2) on Darwin with a message that it is Linux/KDE-only and a macOS path is not implemented — pass 3
-- [ ] R8.1 — README states macOS support, dependencies, and the Keychain backend
-- [ ] R8.2 — unsigned-bundle, memory-check, and screenshot limitations documented
-- [ ] R8.3 — changelog entry added; `VERSION`/`README.md` bumped together with user-approved number
+- [x] R8.1 — README lists macOS as supported, its per-platform requirements, and the login-Keychain backend — pass 4
+- [x] R8.2 — the unsigned-`.app`/Gatekeeper caveat, the absent macOS memory check, the Linux-only screenshots, and the double-click-launches-not-opens behaviour are all documented (README + validation report) — pass 4
+- [x] R8.3 — 0.4.0 changelog entry added; `VERSION` and `README.md` both at 0.4.0 (user-approved) — pass 4
 
 ---
 

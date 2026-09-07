@@ -2,6 +2,7 @@ package gui
 
 import (
 	"image/color"
+	"runtime"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
@@ -37,6 +38,14 @@ type palette struct {
 	focus       color.Color // DecorationFocus
 	hover       color.Color // DecorationHover
 	separator   color.Color // no KDE equivalent: derived, see below
+
+	// cornerRadius and padding shape the widgets rather than colour them. They
+	// are zero for the desktop schemes, which keep the tight, squarer Breeze
+	// metrics the Size method defaults to; the macOS schemes set them to the
+	// rounder, airier values that make Fyne read as Tahoe's Liquid Glass rather
+	// than as Fyne wearing macOS colours. Zero means "use the default".
+	cornerRadius float32
+	padding      float32
 }
 
 func rgb(r, g, b uint8) color.Color { return color.NRGBA{R: r, G: g, B: b, A: 0xff} }
@@ -136,7 +145,45 @@ var adwaitaDark = palette{
 	separator: rgb(61, 61, 61),
 }
 
-var palettes = []palette{breezeDark, breezeLight, oxygenDark, adwaitaDark, adwaitaLight}
+// macOS Tahoe / Liquid Glass. Unlike the KDE schemes there is no .colors file to
+// transcribe: these are Apple's documented system colours — systemBlue for the
+// accent, the systemRed/Green/Orange triple, and the label/secondary-label and
+// window/content greys — in their light and dark values. Fyne cannot draw real
+// translucency or blur, so "Liquid Glass" is approximated the only ways a flat
+// toolkit can: the system palette, a layered depth (recessed content, a raised
+// window, raised controls), and the rounder corners and airier padding set
+// below. It is a likeness, not the material, and does not pretend otherwise.
+var macOSLight = palette{
+	name: "macOS Light", dark: false,
+	windowBG: rgb(246, 246, 248), windowFG: rgb(29, 29, 31),
+	viewBG: rgb(255, 255, 255), viewAltBG: rgb(242, 242, 245), viewFG: rgb(29, 29, 31),
+	buttonBG: rgb(255, 255, 255), buttonFG: rgb(29, 29, 31),
+	selectionBG: rgb(0, 122, 255), selectionFG: rgb(255, 255, 255),
+	tooltipBG:  rgb(250, 250, 252),
+	inactiveFG: rgb(142, 142, 147),
+	negative:   rgb(255, 59, 48), positive: rgb(52, 199, 89), neutral: rgb(255, 149, 0),
+	link: rgb(0, 122, 255), focus: rgb(0, 122, 255), hover: rgb(0, 122, 255),
+	separator:    rgb(209, 209, 214),
+	cornerRadius: 8, padding: 5,
+}
+
+var macOSDark = palette{
+	name: "macOS Dark", dark: true,
+	windowBG: rgb(30, 30, 32), windowFG: rgb(245, 245, 247),
+	viewBG: rgb(22, 22, 24), viewAltBG: rgb(30, 30, 33), viewFG: rgb(245, 245, 247),
+	buttonBG: rgb(44, 44, 47), buttonFG: rgb(245, 245, 247),
+	selectionBG: rgb(10, 132, 255), selectionFG: rgb(255, 255, 255),
+	tooltipBG:  rgb(44, 44, 47),
+	inactiveFG: rgb(152, 152, 157),
+	negative:   rgb(255, 69, 58), positive: rgb(48, 209, 88), neutral: rgb(255, 159, 10),
+	link: rgb(10, 132, 255), focus: rgb(10, 132, 255), hover: rgb(10, 132, 255),
+	separator:    rgb(56, 56, 59),
+	cornerRadius: 8, padding: 5,
+}
+
+var palettes = []palette{
+	breezeDark, breezeLight, oxygenDark, adwaitaDark, adwaitaLight, macOSDark, macOSLight,
+}
 
 // paletteNames lists the schemes in the order they are offered.
 func paletteNames() []string {
@@ -156,6 +203,21 @@ func paletteByName(name string) palette {
 		}
 	}
 	return palettes[0]
+}
+
+// defaultSchemeName is the scheme used when none has been saved yet. On macOS it
+// is the Liquid Glass theme matching the system's light/dark setting, so a first
+// run looks like the platform it is on; elsewhere it is the first palette, which
+// is Breeze Dark. Only the first run is affected — once the user picks a scheme
+// it is saved and this is not consulted again.
+func defaultSchemeName() string {
+	if runtime.GOOS == "darwin" {
+		if a := fyne.CurrentApp(); a != nil && a.Settings().ThemeVariant() == theme.VariantLight {
+			return macOSLight.name
+		}
+		return macOSDark.name
+	}
+	return palettes[0].name
 }
 
 // kdeTheme adapts a desktop color scheme to fyne.Theme, together with the
@@ -194,8 +256,14 @@ func (t kdeTheme) Size(n fyne.ThemeSizeName) float32 {
 	// "Fyne wearing KDE colors".
 	switch n {
 	case theme.SizeNameInputRadius, theme.SizeNameSelectionRadius:
+		if t.p.cornerRadius > 0 {
+			return t.p.cornerRadius
+		}
 		return 2
 	case theme.SizeNamePadding:
+		if t.p.padding > 0 {
+			return t.p.padding
+		}
 		return 3
 	case theme.SizeNameText:
 		if t.text > 0 {

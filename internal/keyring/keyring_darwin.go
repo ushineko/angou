@@ -8,6 +8,7 @@
 // darwin build (keyring_darwin_nocgo.go) keeps the old stub, so a darwin CLI
 // cross-compiled from a Linux release box is still a recovery-capable artifact —
 // it simply has no keyring, which is the state bootstrap exists to leave behind.
+
 package keyring
 
 import (

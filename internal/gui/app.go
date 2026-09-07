@@ -99,7 +99,7 @@ const (
 // rather than failing: paletteByName and loadFont both tolerate an unknown name.
 func (u *ui) loadAppearance() {
 	p := u.app.Preferences()
-	u.scheme = p.StringWithFallback(prefScheme, palettes[0].name)
+	u.scheme = p.StringWithFallback(prefScheme, defaultSchemeName())
 	u.fontName = p.StringWithFallback(prefFont, defaultFontName)
 	u.textSize = float32(p.FloatWithFallback(prefSize, float64(defaultTextSize)))
 }

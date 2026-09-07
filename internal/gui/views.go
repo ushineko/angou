@@ -952,7 +952,7 @@ func (u *ui) buildAppearance() fyne.CanvasObject {
 	size.SetSelected(fmt.Sprintf("%g", u.textSize))
 
 	reset := widget.NewButton("Reset to defaults", func() {
-		u.scheme, u.fontName, u.textSize = palettes[0].name, defaultFontName, defaultTextSize
+		u.scheme, u.fontName, u.textSize = defaultSchemeName(), defaultFontName, defaultTextSize
 		scheme.SetSelected(u.scheme)
 		font.SetSelected(u.fontName)
 		size.SetSelected(fmt.Sprintf("%g", u.textSize))

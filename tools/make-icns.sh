@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 #
-# Build a macOS .icns from an SVG using only tools a stock Mac already has —
-# qlmanage to rasterise the vector, sips to scale, iconutil to assemble. No
-# ImageMagick or librsvg dependency, so `make build-app` needs nothing installed.
+# Build a macOS .icns from an SVG. Each icon size is rendered straight from the
+# vector by tools/svg2png (oksvg/rasterx, the stack fyne uses for the in-app
+# icon), then iconutil assembles them. This needs only the Go toolchain the build
+# already requires — no ImageMagick, no librsvg.
+#
+# It does NOT use qlmanage: that produces a Quick Look thumbnail, which drew the
+# logo at roughly its native 64px in a 1024px canvas, so the app icon came out
+# tiny. Rendering from the vector at each size fills the canvas and stays sharp
+# down to 16px.
 
 set -euo pipefail
 
 SVG="${1:?usage: make-icns.sh <svg> <out.icns>}"
 OUT="${2:?usage: make-icns.sh <svg> <out.icns>}"
 
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# qlmanage renders the vector to a large master PNG; every icon size scales down
-# from that one master so the small sizes stay sharp.
-qlmanage -t -s 1024 -o "$tmp" "$SVG" >/dev/null 2>&1 || true
-master="$tmp/$(basename "$SVG").png"
-if [ ! -f "$master" ]; then
-    echo "make-icns: qlmanage produced no PNG for $SVG" >&2
-    exit 1
-fi
+# Build the rasteriser once, then run it per size.
+go build -o "$tmp/svg2png" "${here}/tools/svg2png"
 
 iconset="$tmp/angou.iconset"
 mkdir -p "$iconset"
@@ -30,7 +32,7 @@ for pair in "16:icon_16x16" "32:icon_16x16@2x" "32:icon_32x32" "64:icon_32x32@2x
             "512:icon_256x256@2x" "512:icon_512x512" "1024:icon_512x512@2x"; do
     px="${pair%%:*}"
     name="${pair#*:}"
-    sips -z "$px" "$px" "$master" --out "$iconset/${name}.png" >/dev/null
+    "$tmp/svg2png" "$SVG" "$iconset/${name}.png" "$px"
 done
 
 iconutil -c icns "$iconset" -o "$OUT"
