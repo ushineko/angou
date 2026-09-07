@@ -75,18 +75,6 @@ func Open() (Keyring, error) {
 	return openKWallet()
 }
 
-// Backend selection, for a user who would rather pin one than let angou choose.
-const (
-	// BackendEnv names the environment variable that selects a backend.
-	BackendEnv = "ANGOU_KEYRING"
-	// BackendAuto is the default: the Secret Service, then KWallet.
-	BackendAuto = "auto"
-	// BackendSecretService is the cross-desktop org.freedesktop.secrets API.
-	BackendSecretService = "secretservice"
-	// BackendKWallet is the KDE-specific org.kde.kwalletd6 API.
-	BackendKWallet = "kwallet"
-)
-
 // openKWallet connects through the KWallet-specific API, using the wallet named
 // by WalletEnv when it is set and the session's default wallet otherwise.
 //

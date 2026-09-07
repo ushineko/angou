@@ -52,6 +52,25 @@ const Folder = "angou"
 // reasonable thing for a user to set deliberately.
 const WalletEnv = "ANGOU_KWALLET"
 
+// Backend selection, for a user who would rather pin one than let angou choose.
+//
+// These identifiers live in the platform-neutral file, not alongside the Linux
+// backend that consumes them, so the shared end-to-end harness — which compiles
+// on every platform and reads BackendEnv to pass a selector through to the
+// binary under test — resolves them everywhere. The backends the last two name
+// are implemented only on Linux; naming them here costs nothing and keeps the
+// selector vocabulary in one place as more platforms grow real backends.
+const (
+	// BackendEnv names the environment variable that selects a backend.
+	BackendEnv = "ANGOU_KEYRING"
+	// BackendAuto is the default: the Secret Service, then KWallet.
+	BackendAuto = "auto"
+	// BackendSecretService is the cross-desktop org.freedesktop.secrets API.
+	BackendSecretService = "secretservice"
+	// BackendKWallet is the KDE-specific org.kde.kwalletd6 API.
+	BackendKWallet = "kwallet"
+)
+
 // EntryName builds the per-store entry key. A machine may hold several stores,
 // so the identity fingerprint rather than a fixed name selects the entry.
 func EntryName(storeID string) string { return "unlock-" + storeID }
