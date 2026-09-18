@@ -65,9 +65,9 @@ func (u *ui) storeDir() string {
 	}
 	// A window that had chosen a store before the choice was shared: adopt it
 	// once, so upgrading does not look like the store was forgotten.
-	if old := u.app.Preferences().String(prefStore); old != "" {
+	if old := u.sh.App.Preferences().String(prefStore); old != "" {
 		if err := core.RememberStore(old); err == nil {
-			u.app.Preferences().RemoveValue(prefStore)
+			u.sh.App.Preferences().RemoveValue(prefStore)
 		}
 		return old
 	}
@@ -77,7 +77,7 @@ func (u *ui) storeDir() string {
 // setStoreDir remembers a store and reloads everything for it.
 func (u *ui) setStoreDir(dir string) {
 	if err := core.RememberStore(dir); err != nil {
-		u.flash("Could not remember "+dir+" as this machine's store: "+err.Error()+
+		u.sh.Flash("Could not remember "+dir+" as this machine's store: "+err.Error()+
 			". This window is using it, but the command line and the next run will not.", fd.StatusWarn)
 	}
 	u.session = Session{StoreDir: dir}
@@ -87,9 +87,9 @@ func (u *ui) setStoreDir(dir string) {
 	u.releases, u.releasesOK = nil, false
 	u.agentOK = false
 	u.candidates = nil
-	u.rebuild()
+	u.sh.Rebuild()
 	if os.Getenv(StoreEnv) != "" && os.Getenv(StoreEnv) != dir {
-		u.flash("$"+StoreEnv+" is set and takes precedence, so this window is still using "+
+		u.sh.Flash("$"+StoreEnv+" is set and takes precedence, so this window is still using "+
 			os.Getenv(StoreEnv)+".", fd.StatusWarn)
 	}
 }
@@ -130,7 +130,7 @@ func (g guiDecider) Ask(d core.Decision) bool {
 func (u *ui) events() core.Events {
 	return core.Events{
 		Notice: func(msg string) {
-			fyne.Do(func() { u.flash(msg, fd.StatusWarn) })
+			fyne.Do(func() { u.sh.Flash(msg, fd.StatusWarn) })
 		},
 	}
 }
@@ -145,11 +145,11 @@ func (u *ui) events() core.Events {
 func (u *ui) withSession(what string, fn func(*core.Session) error) {
 	dir := u.storeDir()
 	if dir == "" {
-		u.flash("No store is configured. Set $"+StoreEnv+" or run the first-run setup.", fd.StatusBad)
+		u.sh.Flash("No store is configured. Set $"+StoreEnv+" or run the first-run setup.", fd.StatusBad)
 		return
 	}
 	go func() {
-		done := u.busy(what + "…")
+		done := u.sh.Busy(what + "…")
 		defer done()
 
 		s, err := core.Open(dir, guiSecrets{u: u}, u.events())
@@ -172,7 +172,7 @@ func (u *ui) report(what string, err error) {
 	if errors.Is(err, core.ErrNoSecret) || errors.Is(err, core.ErrDeclined) {
 		return // the user answered no; that is not a failure to report
 	}
-	fyne.Do(func() { u.flash(what+": "+err.Error(), fd.StatusBad) })
+	fyne.Do(func() { u.sh.Flash(what+": "+err.Error(), fd.StatusBad) })
 }
 
 // ok reports a completed operation, and treats what is on screen as stale.
@@ -184,23 +184,9 @@ func (u *ui) report(what string, err error) {
 // removes the wrong file.
 func (u *ui) ok(msg string) {
 	fyne.Do(func() {
-		u.flash(msg, fd.StatusGood)
-		u.invalidate()
+		u.sh.Flash(msg, fd.StatusGood)
+		u.sh.Invalidate()
 	})
-}
-
-// invalidate discards everything loaded from the store and rebuilds, which
-// makes the sections fetch again. Called on the UI thread.
-func (u *ui) invalidate() {
-	u.entriesOK = false
-	u.doctorOK = false
-	u.agentOK = false
-	// The agent state is fetched here rather than left to a section, because
-	// the status bar reports it from every section. Left to the Machine section
-	// to load, the bar said "no session" everywhere else — next to "unlocked by
-	// an agent session", which is the same bar contradicting itself.
-	u.loadAgent()
-	u.rebuild()
 }
 
 // opensWithoutAsking reports whether reopening the store would go through
@@ -237,10 +223,10 @@ func (u *ui) loadEntries() {
 			// left showing what was true before the store was opened.
 			u.session.Route = route
 			if !trusted {
-				u.flash("The index is missing or did not verify, so this listing is empty. "+
+				u.sh.Flash("The index is missing or did not verify, so this listing is empty. "+
 					"Reindex rebuilds it from the blobs themselves.", fd.StatusWarn)
 			}
-			u.rebuild()
+			u.sh.Rebuild()
 		})
 		return nil
 	})
@@ -258,7 +244,7 @@ func (u *ui) loadDoctor() {
 		return
 	}
 	go func() {
-		done := u.busy("Inspecting this machine…")
+		done := u.sh.Busy("Inspecting this machine…")
 		defer done()
 		r := core.Doctor(dir, core.NoSecrets{}, core.Events{})
 		groups := make([]DoctorGroup, 0, len(r.Sections))
@@ -275,7 +261,7 @@ func (u *ui) loadDoctor() {
 		}
 		fyne.Do(func() {
 			u.doctor, u.doctorOK = groups, true
-			u.refresh()
+			u.sh.Refresh()
 		})
 	}()
 }
@@ -287,7 +273,7 @@ func (u *ui) loadAgent() {
 		return
 	}
 	go func() {
-		done := u.busy("Checking for an agent session…")
+		done := u.sh.Busy("Checking for an agent session…")
 		defer done()
 		st, err := core.AgentState(dir)
 		if err != nil {
@@ -304,7 +290,7 @@ func (u *ui) loadAgent() {
 				Remaining: st.Remaining,
 				Socket:    socket,
 			}
-			u.refresh()
+			u.sh.Refresh()
 		})
 	}()
 }
@@ -370,7 +356,7 @@ func (u *ui) encryptSelected(cands []ScanCandidate) {
 		}
 	}
 	if len(chosen) == 0 {
-		u.flash("Nothing is selected.", fd.StatusWarn)
+		u.sh.Flash("Nothing is selected.", fd.StatusWarn)
 		return
 	}
 
@@ -381,7 +367,7 @@ func (u *ui) encryptSelected(cands []ScanCandidate) {
 					if err != nil {
 						path := src
 						cause := err
-						fyne.Do(func() { u.flash("Skipped "+path+": "+cause.Error(), fd.StatusWarn) })
+						fyne.Do(func() { u.sh.Flash("Skipped "+path+": "+cause.Error(), fd.StatusWarn) })
 					}
 				},
 			})
@@ -402,11 +388,11 @@ func (u *ui) encryptSelected(cands []ScanCandidate) {
 // derivation.
 func (u *ui) createStore(dir string, generate, bootstrap bool) {
 	if dir == "" {
-		u.flash("Choose a directory for the store first.", fd.StatusWarn)
+		u.sh.Flash("Choose a directory for the store first.", fd.StatusWarn)
 		return
 	}
 	if core.StoreExists(dir) {
-		u.flash(dir+" already holds a store. Choose \"Open a store that already exists\" to "+
+		u.sh.Flash(dir+" already holds a store. Choose \"Open a store that already exists\" to "+
 			"use it; initializing over it is not offered.", fd.StatusBad)
 		return
 	}
@@ -415,7 +401,7 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 		// Slow in a way that needs saying: creating a store derives a key with
 		// Argon2id and generates a keypair, and a window that looks frozen
 		// invites a second click on a button that must not run twice.
-		done := u.busy("Creating the store…")
+		done := u.sh.Busy("Creating the store…")
 		defer done()
 
 		var (
@@ -483,14 +469,14 @@ func (u *ui) createStore(dir string, generate, bootstrap bool) {
 // with nothing found shows nothing worth showing.
 func (u *ui) startScan(root string) {
 	u.scanning = true
-	u.refresh()
+	u.sh.Refresh()
 	go func() {
-		done := u.busy("Scanning for credentials…")
+		done := u.sh.Busy("Scanning for credentials…")
 		defer func() {
 			done()
 			fyne.Do(func() {
 				u.scanning = false
-				u.refresh()
+				u.sh.Refresh()
 			})
 		}()
 
@@ -513,11 +499,11 @@ func (u *ui) startScan(root string) {
 		fyne.Do(func() {
 			u.candidates = out
 			if len(out) == 0 {
-				u.flash("Nothing under "+root+" looked like a credential. That is not an "+
+				u.sh.Flash("Nothing under "+root+" looked like a credential. That is not an "+
 					"assurance: the scan knows the usual names and places, not every way a "+
 					"secret can be written down.", fd.StatusInfo)
 			}
-			u.refresh()
+			u.sh.Refresh()
 		})
 	}()
 }
@@ -545,7 +531,7 @@ func (u *ui) loadReleases() {
 		}
 		fyne.Do(func() {
 			u.releases, u.releasesOK = out, true
-			u.refresh()
+			u.sh.Refresh()
 		})
 		return nil
 	})

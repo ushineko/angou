@@ -79,7 +79,7 @@ func (u *ui) decryptDialog(e StoreEntry) {
 			u.ok("Wrote " + e.LogicalPath + " to " + toPath)
 			return nil
 		})
-	}, u.win)
+	}, u.sh.Window)
 }
 
 // firstRunForm is the first-run dialog's contents, kept separate from the dialog
@@ -124,7 +124,7 @@ func (u *ui) newFirstRunForm() *firstRunForm {
 	openNote.Importance = widget.LowImportance
 
 	f.openBody = container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.win, f.openDir, true))),
+		widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.sh.Window, f.openDir, true))),
 		f.openBootstrap,
 		openNote,
 	)
@@ -147,7 +147,7 @@ func (u *ui) newFirstRunForm() *firstRunForm {
 	warn.Importance = widget.WarningImportance
 
 	f.newBody = container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.win, f.newDir, true))),
+		widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.sh.Window, f.newDir, true))),
 		f.generate, f.bootstrap,
 		widget.NewSeparator(),
 		warn,
@@ -199,7 +199,7 @@ func (u *ui) firstRun() {
 			return
 		}
 		u.openExistingStore(f.openDir.Text, f.openBootstrap.Checked)
-	}, u.win)
+	}, u.sh.Window)
 	d.Resize(fyne.NewSize(560, 460))
 	d.Show()
 }
@@ -209,11 +209,11 @@ func (u *ui) firstRun() {
 // cannot disagree about what counts as a store.
 func (u *ui) useStore(dir string) bool {
 	if dir == "" {
-		u.flash("Choose the directory the store is in first.", fd.StatusWarn)
+		u.sh.Flash("Choose the directory the store is in first.", fd.StatusWarn)
 		return false
 	}
 	if !core.StoreExists(dir) {
-		u.flash(dir+" does not hold a store. Check the path, or create a store there instead.",
+		u.sh.Flash(dir+" does not hold a store. Check the path, or create a store there instead.",
 			fd.StatusBad)
 		return false
 	}
@@ -255,7 +255,7 @@ func (u *ui) openExistingStore(dir string, bootstrap bool) {
 			// Said rather than skipped: without a keyring the local key is not
 			// re-protected here, so the passphrase is still what opens the store
 			// and the user should not be told otherwise.
-			u.flash("Opened the store at "+dir+", but this machine has no keyring, so the "+
+			u.sh.Flash("Opened the store at "+dir+", but this machine has no keyring, so the "+
 				"identity was not re-protected here and the recovery passphrase is still "+
 				"what opens the store.", fd.StatusWarn)
 		}
@@ -305,10 +305,10 @@ func (u *ui) askPassphrase(prompt string, answer chan<- []byte) {
 			secret := []byte(entry.Text)
 			entry.SetText("")
 			send(secret)
-		}, u.win)
+		}, u.sh.Window)
 	d.Resize(fyne.NewSize(460, 260))
 	d.Show()
-	u.win.Canvas().Focus(entry)
+	u.sh.Window.Canvas().Focus(entry)
 }
 
 // askDecision puts one of core's mid-operation questions on screen. The
@@ -318,7 +318,7 @@ func (u *ui) askDecision(dec core.Decision, answer chan<- bool) {
 	body := widget.NewLabel(dec.Question)
 	body.Wrapping = fyne.TextWrapWord
 
-	d := dialog.NewCustomWithoutButtons("angou", container.NewVBox(body), u.win)
+	d := dialog.NewCustomWithoutButtons("angou", container.NewVBox(body), u.sh.Window)
 
 	sent := false
 	send := func(v bool) {
@@ -355,8 +355,8 @@ func (u *ui) extractDialog(e StoreEntry) {
 	note.Wrapping = fyne.TextWrapWord
 	note.Importance = widget.LowImportance
 
-	dialogs.Prompt(u.win, "Extract "+e.LogicalPath, "Extract",
-		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", dialogs.WithBrowse(u.win, dest, true))), note),
+	dialogs.Prompt(u.sh.Window, "Extract "+e.LogicalPath, "Extract",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", dialogs.WithBrowse(u.sh.Window, dest, true))), note),
 		func() {
 			u.withSession("Extract", func(s *core.Session) error {
 				written, err := s.Extract(e.LogicalPath, dest.Text)
@@ -381,7 +381,7 @@ func (u *ui) renameDialog(e StoreEntry) {
 	note.Wrapping = fyne.TextWrapWord
 	note.Importance = widget.LowImportance
 
-	dialogs.Prompt(u.win, "Rename "+e.LogicalPath, "Rename",
+	dialogs.Prompt(u.sh.Window, "Rename "+e.LogicalPath, "Rename",
 		container.NewVBox(widget.NewForm(widget.NewFormItem("New path", to)), note),
 		func() {
 			u.withSession("Rename", func(s *core.Session) error {
@@ -404,8 +404,8 @@ func (u *ui) encryptFileDialog() {
 	as.SetPlaceHolder("store path (leave empty to derive one)")
 	binary := widget.NewCheck("Store raw OpenPGP packets instead of ASCII armor", nil)
 
-	dialogs.Prompt(u.win, "Encrypt a file", "Encrypt", container.NewVBox(widget.NewForm(
-		widget.NewFormItem("File", dialogs.WithBrowse(u.win, src, false)),
+	dialogs.Prompt(u.sh.Window, "Encrypt a file", "Encrypt", container.NewVBox(widget.NewForm(
+		widget.NewFormItem("File", dialogs.WithBrowse(u.sh.Window, src, false)),
 		widget.NewFormItem("Store as", as),
 	), binary), func() {
 		u.withSession("Encrypt", func(s *core.Session) error {
@@ -425,11 +425,11 @@ func (u *ui) cloneDialog() {
 	to.SetPlaceHolder("destination, which must not already exist")
 	noBinaries := widget.NewCheck("Leave the platform binaries behind", nil)
 
-	dialogs.Prompt(u.win, "Clone the store", "Clone", container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Destination", dialogs.WithBrowse(u.win, to, true))), noBinaries), func() {
+	dialogs.Prompt(u.sh.Window, "Clone the store", "Clone", container.NewVBox(
+		widget.NewForm(widget.NewFormItem("Destination", dialogs.WithBrowse(u.sh.Window, to, true))), noBinaries), func() {
 		from := u.storeDir()
 		go func() {
-			done := u.busy("Copying the store…")
+			done := u.sh.Busy("Copying the store…")
 			defer done()
 			n, err := core.CopyStore(from, to.Text, noBinaries.Checked)
 			if err != nil {
@@ -465,7 +465,7 @@ func (u *ui) showRecoveryPassphrase(phrase string, bits float64) {
 	warn.Importance = widget.WarningImportance
 
 	d := dialog.NewCustom("Your recovery passphrase", "I have written it down",
-		container.NewVBox(value, widget.NewSeparator(), warn), u.win)
+		container.NewVBox(value, widget.NewSeparator(), warn), u.sh.Window)
 	d.Resize(fyne.NewSize(520, 300))
 	d.Show()
 }
@@ -494,11 +494,11 @@ func (u *ui) chooseStore() {
 		env.Importance = widget.WarningImportance
 	}
 
-	dialogs.Prompt(u.win, "Choose a store", "Use this store",
-		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.win, dir, true))), note, env),
+	dialogs.Prompt(u.sh.Window, "Choose a store", "Use this store",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.sh.Window, dir, true))), note, env),
 		func() {
 			if u.useStore(dir.Text) {
-				u.flash("Now using the store at "+dir.Text, fd.StatusGood)
+				u.sh.Flash("Now using the store at "+dir.Text, fd.StatusGood)
 			}
 		})
 }

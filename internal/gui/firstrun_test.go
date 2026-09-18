@@ -3,8 +3,6 @@ package gui
 import (
 	"testing"
 
-	"fyne.io/fyne/v2/test"
-	"fyne.io/fyne/v2/widget"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,11 +11,7 @@ import (
 // default for a store built to be synced: every machine after the first meets
 // angou with the store already on disk.
 func TestFirstRunOpensOnTheExistingStorePath(t *testing.T) {
-	app := test.NewApp()
-	defer app.Quit()
-
-	u := &ui{app: app, win: test.NewWindow(widget.NewLabel(""))}
-	defer u.win.Close()
+	u := testUI(t)
 
 	f := u.newFirstRunForm()
 	require.Equal(t, firstRunOpen, f.choice.Selected, "first run must default to opening a store")
@@ -31,11 +25,7 @@ func TestFirstRunOpensOnTheExistingStorePath(t *testing.T) {
 // showing is a dialog with no fields; both showing is two Directory fields with
 // nothing to say which one Continue reads.
 func TestFirstRunShowsOneBodyAtATime(t *testing.T) {
-	app := test.NewApp()
-	defer app.Quit()
-
-	u := &ui{app: app, win: test.NewWindow(widget.NewLabel(""))}
-	defer u.win.Close()
+	u := testUI(t)
 
 	f := u.newFirstRunForm()
 
@@ -53,11 +43,7 @@ func TestFirstRunShowsOneBodyAtATime(t *testing.T) {
 // operation is the state the Machine section exists to get out of, and it should
 // not be where a first run lands by default.
 func TestFirstRunOffersMachineSetupOnBothPaths(t *testing.T) {
-	app := test.NewApp()
-	defer app.Quit()
-
-	u := &ui{app: app, win: test.NewWindow(widget.NewLabel(""))}
-	defer u.win.Close()
+	u := testUI(t)
 
 	f := u.newFirstRunForm()
 	require.True(t, f.openBootstrap.Checked, "opening a store must offer to set the machine up")

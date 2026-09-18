@@ -2,18 +2,17 @@ package gui
 
 import (
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	fd "github.com/ushineko/fynedesygn"
 	"github.com/ushineko/fynedesygn/dialogs"
+	"github.com/ushineko/fynedesygn/shell"
 	"github.com/ushineko/fynedesygn/widgets"
 
 	"github.com/ushineko/angou/internal/core"
@@ -173,7 +172,7 @@ func (u *ui) buildStore() fyne.CanvasObject {
 	mv.OnTapped = func() { u.renameDialog(entries[selected]) }
 	rm.OnTapped = func() {
 		e := entries[selected]
-		dialogs.ConfirmDestructive(u.win, "Remove "+e.LogicalPath+"?",
+		dialogs.ConfirmDestructive(u.sh.Window, "Remove "+e.LogicalPath+"?",
 			"This deletes the blob and its index entry from the store. The plaintext at "+
 				originOrNone(e)+" is not touched.\n\nThere is no undo inside angou. If the "+
 				"store is the only copy, this is the only copy.",
@@ -198,8 +197,8 @@ func (u *ui) buildStore() fyne.CanvasObject {
 
 	toolbar := container.NewHBox(
 		widget.NewButtonWithIcon("Encrypt file…", theme.ContentAddIcon(), func() { u.encryptFileDialog() }),
-		widget.NewButtonWithIcon("Scan directory…", theme.SearchIcon(), func() { u.nav.Select(1) }),
-		widget.NewButtonWithIcon("Refresh", theme.ViewRestoreIcon(), func() { u.invalidate() }),
+		widget.NewButtonWithIcon("Scan directory…", theme.SearchIcon(), func() { u.sh.Select("Encrypt") }),
+		widget.NewButtonWithIcon("Refresh", theme.ViewRestoreIcon(), func() { u.sh.Invalidate() }),
 		widget.NewButtonWithIcon("Reindex", theme.MediaReplayIcon(), func() {
 			u.withSession("Reindex", func(s *core.Session) error {
 				r, err := s.Reindex()
@@ -210,7 +209,7 @@ func (u *ui) buildStore() fyne.CanvasObject {
 				for _, n := range r.Unreadable {
 					name := n
 					fyne.Do(func() {
-						u.flash("Ignored "+name+" — it does not decrypt with this store's key. "+
+						u.sh.Flash("Ignored "+name+" — it does not decrypt with this store's key. "+
 							"Usually a leftover from an interrupted rekey; Prune removes them.", fd.StatusWarn)
 					})
 				}
@@ -218,7 +217,7 @@ func (u *ui) buildStore() fyne.CanvasObject {
 			})
 		}),
 		widget.NewButtonWithIcon("Prune…", theme.DeleteIcon(), func() {
-			dialogs.ConfirmDestructive(u.win, "Prune the store?",
+			dialogs.ConfirmDestructive(u.sh.Window, "Prune the store?",
 				"This removes superseded key bundles and unreadable leftovers.\n\n"+
 					"Pruning the superseded bundle is what finally closes a rotation: until it is "+
 					"gone, the key you rotated away from still opens the blobs it wrote. It also "+
@@ -362,7 +361,7 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 	}
 
 	run := widget.NewButtonWithIcon("Encrypt selected", theme.ConfirmIcon(), func() {
-		dialogs.ConfirmDestructive(u.win, "Encrypt the selected files?",
+		dialogs.ConfirmDestructive(u.sh.Window, "Encrypt the selected files?",
 			"Each selected file is encrypted into the store and its origin recorded.\n\n"+
 				"The plaintext is left where it is. Removing the originals is a separate, "+
 				"deliberate step — angou will not delete a file you have not seen it store first.",
@@ -374,7 +373,7 @@ func (u *ui) buildEncrypt() fyne.CanvasObject {
 			"Scan a directory for likely candidates for file encryption, such as credentials, "+
 				"see why each file was flagged, and choose which to store."),
 		container.NewBorder(nil, nil, widget.NewLabel("Directory"),
-			nil, dialogs.WithBrowse(u.win, dir, true)),
+			nil, dialogs.WithBrowse(u.sh.Window, dir, true)),
 		container.NewHBox(scan, all, none, count),
 		widget.NewSeparator(),
 	)
@@ -414,14 +413,14 @@ func (u *ui) buildDoctor() fyne.CanvasObject {
 	assert := widget.NewButton("Assert this key opens nothing", func() {
 		fingerprint := core.NormalizeFingerprint(oldKey.Text)
 		if fingerprint == "" {
-			u.flash("Enter the fingerprint of the superseded key first.", fd.StatusWarn)
+			u.sh.Flash("Enter the fingerprint of the superseded key first.", fd.StatusWarn)
 			return
 		}
 		dir := u.storeDir()
 		go func() {
 			// This one reads every blob in the store, so it is slow in
 			// proportion to how much is in it.
-			done := u.busy("Checking the superseded key…")
+			done := u.sh.Busy("Checking the superseded key…")
 			defer done()
 			opened, err := core.AssertOldKeyDead(dir, fingerprint, guiSecrets{u: u})
 			if err != nil {
@@ -430,7 +429,7 @@ func (u *ui) buildDoctor() fyne.CanvasObject {
 			}
 			if len(opened) > 0 {
 				fyne.Do(func() {
-					u.flash(fmt.Sprintf("The rotation is incomplete: %s still opens %d file(s).",
+					u.sh.Flash(fmt.Sprintf("The rotation is incomplete: %s still opens %d file(s).",
 						fingerprint, len(opened)), fd.StatusBad)
 				})
 				return
@@ -473,7 +472,7 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 					}
 					if !r.UsedKeyring {
 						fyne.Do(func() {
-							u.flash("No keyring is available on this machine, so the identity was not "+
+							u.sh.Flash("No keyring is available on this machine, so the identity was not "+
 								"re-protected here. The store remains reachable with the recovery "+
 								"passphrase. Cause: "+r.Cause.Error(), fd.StatusWarn)
 						})
@@ -517,14 +516,14 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 		action("Forget this machine",
 			"Removes this machine's local key and its keyring entry. Every command here goes back to asking for the recovery passphrase. If you do not have that passphrase, this machine loses access to the store.",
 			"Forget", true, func() {
-				dialogs.ConfirmDestructive(u.win, "Forget this machine?",
+				dialogs.ConfirmDestructive(u.sh.Window, "Forget this machine?",
 					"This removes the local key and the keyring entry.\n\n"+
 						"Afterwards this machine opens the store only with the recovery passphrase. "+
 						"If you do not have it written down somewhere, this machine will not open the store again.",
 					"Forget", func() {
 						dir := u.storeDir()
 						go func() {
-							done := u.busy("Removing the local key…")
+							done := u.sh.Busy("Removing the local key…")
 							defer done()
 							r, err := core.ForgetMachine(dir)
 							if err != nil {
@@ -543,7 +542,7 @@ func (u *ui) buildMachine() fyne.CanvasObject {
 		action("Rotate the store identity",
 			"Generates a new keypair and naming key and re-encrypts every blob in the store. Long-running. Every other machine must bootstrap again afterwards, and the superseded bundle stays in the store until you prune it.",
 			"Rotate identity", true, func() {
-				dialogs.ConfirmDestructive(u.win, "Rotate the store identity?",
+				dialogs.ConfirmDestructive(u.sh.Window, "Rotate the store identity?",
 					"Every blob in the store is re-encrypted under a new keypair, and every "+
 						"logical path is re-addressed under a new naming key.\n\n"+
 						"This cannot be undone from inside angou. Every other machine loses "+
@@ -692,7 +691,7 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 							"That is drift detection after the fact, not a guarantee about any run.")
 					default:
 						fyne.Do(func() {
-							u.flash("bootstrap.sh does NOT match the digest recorded in this store. "+
+							u.sh.Flash("bootstrap.sh does NOT match the digest recorded in this store. "+
 								"Read it before any machine runs it.", fd.StatusBad)
 						})
 					}
@@ -708,10 +707,10 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 					"other machines install and run.")
 				warn.Wrapping = fyne.TextWrapWord
 				warn.Importance = widget.WarningImportance
-				dialogs.Prompt(u.win, "Generate a release-signing key", "Generate",
+				dialogs.Prompt(u.sh.Window, "Generate a release-signing key", "Generate",
 					container.NewVBox(path, warn), func() {
 						go func() {
-							done := u.busy("Generating a signing key…")
+							done := u.sh.Busy("Generating a signing key…")
 							defer done()
 							if err := core.GenerateSigningKey(path.Text); err != nil {
 								u.report("Generate signing key", err)
@@ -768,7 +767,7 @@ func (u *ui) buildAgentBlock() fyne.CanvasObject {
 	stop := widget.NewButton("Stop the session", func() {
 		dir := u.storeDir()
 		go func() {
-			done := u.busy("Stopping the agent…")
+			done := u.sh.Busy("Stopping the agent…")
 			defer done()
 			stopped, err := core.StopAgent(dir)
 			if err != nil {
@@ -809,182 +808,48 @@ func (u *ui) buildAgentBlock() fyne.CanvasObject {
 
 // --- About ----------------------------------------------------------------
 
-// buildAbout is what angou is and what it can do. Limitations are the README's
-// job — it carries a Safety section written for that purpose, and restating a
-// shortened version here would only produce a second, less careful copy to keep
-// in sync. The link below is how a user gets to it.
-func (u *ui) buildAbout(version, commit string) fyne.CanvasObject {
-	logo := canvas.NewImageFromResource(appIcon())
-	logo.FillMode = canvas.ImageFillContain
-	logo.SetMinSize(fyne.NewSize(72, 72))
-
-	name := widget.NewLabelWithStyle("angou", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	ver := widget.NewLabel(version + " (" + commit + ")")
-	ver.Importance = widget.LowImportance
-	blurb := widget.NewLabel(
-		"angou converts sensitive files to and from encrypted blobs held in a plain " +
-			"directory. The store is portable: rsync, a sync service, or removable media " +
-			"carries it without any further state.")
-	blurb.Wrapping = fyne.TextWrapWord
-
-	head := container.NewBorder(nil, nil, container.NewPadded(logo), nil,
-		container.NewVBox(name, ver, blurb))
-
-	can := container.NewVBox(
-		widgets.AboutNote("Encrypt and restore",
-			"Files go into the store encrypted under OpenPGP and come back out where they came "+
-				"from, with their mode and modification time intact."),
-		widgets.AboutNote("Find what is already on the machine",
-			"Scan a directory for credentials — private keys, .env files, cloud config, netrc — "+
-				"see why each was flagged, and choose what to store."),
-		widgets.AboutNote("Carry it anywhere",
-			"The store is an ordinary directory. Sync it, rsync it, or put it on a USB stick; "+
-				"there is no database and no state held outside it."),
-		widgets.AboutNote("Open it without retyping",
-			"A machine you have set up holds its own key, unwrapped by the system keyring, and "+
-				"stops asking for the recovery passphrase."),
-		widgets.AboutNote("Rotate what protects it",
-			"Change the recovery passphrase, this machine's password, or the store's identity "+
-				"keypair — the last re-encrypting every blob."),
-		widgets.AboutNote("Recover on a bare machine",
-			"The store can carry signed binaries and a bootstrap script, so a machine with no "+
-				"angou installed can get itself to a working one."),
-		widgets.AboutNote("Stay readable by other tools",
-			"Blob bodies decrypt with stock gpg, and file(1) identifies them through the "+
-				"shipped magic entry. Nothing here is a format only angou can read."),
-		widgets.AboutNote("Run without pulling anything in",
-			"No gpg, no gpg-agent, no kwallet-query — no subprocesses at all. The command-line "+
-				"binary is static and has no runtime dependencies."),
-	)
-
-	facts := widget.NewForm(
-		widget.NewFormItem("Encryption", widget.NewLabel("OpenPGP via ProtonMail/go-crypto")),
-		widget.NewFormItem("Container", widget.NewLabel("ANGOU1, ASCII armor by default")),
-		widget.NewFormItem("Keyring", widget.NewLabel("Secret Service over D-Bus")),
-		widget.NewFormItem("Licence", widget.NewLabel("MIT")),
-	)
-
-	body := container.NewVBox(
-		head,
-		aboutLink(),
-		widget.NewSeparator(),
-		widget.NewLabelWithStyle("What it does", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		can,
-		widget.NewSeparator(),
-		widget.NewLabelWithStyle("Facts", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		facts,
-	)
-	return container.NewVScroll(body)
-}
-
 // projectURL is where the README lives. It is the one place the GUI sends a
 // user outside itself, and it opens in the desktop's browser rather than in any
 // view of ours.
 const projectURL = "https://github.com/ushineko/angou"
 
-// aboutLink points at the README, which carries what this window deliberately
-// does not: installation, the store format, recovery on a bare machine, and the
-// account of where angou promises less than a reader might assume.
-func aboutLink() fyne.CanvasObject {
-	u, err := url.Parse(projectURL)
-	if err != nil {
-		// Unreachable for a constant that parses, but a GUI that panics on a
-		// bad link is worse than one that shows the address as text.
-		return widget.NewLabel(projectURL)
-	}
-	return widget.NewHyperlink("Project documentation", u)
-}
-
 // --- Appearance (R5A) -----------------------------------------------------
 
-// buildAppearance is the scheme, font, and text-size picker. Fyne draws its own
-// widgets, so these three settings are the whole of what makes the window look
-// like it belongs on the user's desktop — which is why they are a section
-// rather than a line in a preferences dialog.
-func (u *ui) buildAppearance() fyne.CanvasObject {
-	scheme := widget.NewSelect(paletteNames(), func(name string) {
-		u.scheme = name
-		u.applyAppearance()
-	})
-	scheme.SetSelected(u.scheme)
-
-	font := widget.NewSelect(fontNames(), func(name string) {
-		u.fontName = name
-		u.applyAppearance()
-	})
-	font.SetSelected(u.fontName)
-
-	sizes := make([]string, 0, len(textSizes))
-	for _, s := range textSizes {
-		sizes = append(sizes, fmt.Sprintf("%g", s))
+// about describes this program for the library's About section. The long-form
+// documentation stays in the README; a shortened copy here would only drift.
+func (u *ui) about(version, commit string) shell.About {
+	return shell.About{
+		Icon:    appIcon(),
+		Name:    "angou",
+		Version: version + " (" + commit + ")",
+		Blurb: "angou converts sensitive files to and from encrypted blobs held in a plain " +
+			"directory. The store is portable: rsync, a sync service, or removable media " +
+			"carries it without any further state.",
+		URL:     projectURL,
+		URLText: "Project documentation",
+		Notes: []shell.Note{
+			{Title: "Encrypt and restore", Detail: "Files go into the store encrypted under OpenPGP and come back out where they came " +
+				"from, with their mode and modification time intact."},
+			{Title: "Find what is already on the machine", Detail: "Scan a directory for credentials — private keys, .env files, cloud config, netrc — " +
+				"see why each was flagged, and choose what to store."},
+			{Title: "Carry it anywhere", Detail: "The store is an ordinary directory. Sync it, rsync it, or put it on a USB stick; " +
+				"there is no database and no state held outside it."},
+			{Title: "Open it without retyping", Detail: "A machine you have set up holds its own key, unwrapped by the system keyring, and " +
+				"stops asking for the recovery passphrase."},
+			{Title: "Rotate what protects it", Detail: "Change the recovery passphrase, this machine's password, or the store's identity " +
+				"keypair — the last re-encrypting every blob."},
+			{Title: "Recover on a bare machine", Detail: "The store can carry signed binaries and a bootstrap script, so a machine with no " +
+				"angou installed can get itself to a working one."},
+			{Title: "Stay readable by other tools", Detail: "Blob bodies decrypt with stock gpg, and file(1) identifies them through the " +
+				"shipped magic entry. Nothing here is a format only angou can read."},
+			{Title: "Run without pulling anything in", Detail: "No gpg, no gpg-agent, no kwallet-query — no subprocesses at all. The " +
+				"command-line binary is static and has no runtime dependencies."},
+		},
+		Facts: []shell.Fact{
+			{Label: "Encryption", Value: "OpenPGP via ProtonMail/go-crypto"},
+			{Label: "Container", Value: "ANGOU1, ASCII armor by default"},
+			{Label: "Keyring", Value: "Secret Service over D-Bus"},
+			{Label: "Licence", Value: "MIT"},
+		},
 	}
-	size := widget.NewSelect(sizes, func(v string) {
-		for _, s := range textSizes {
-			if fmt.Sprintf("%g", s) == v {
-				u.textSize = s
-				u.applyAppearance()
-				return
-			}
-		}
-	})
-	size.SetSelected(fmt.Sprintf("%g", u.textSize))
-
-	reset := widget.NewButton("Reset to defaults", func() {
-		u.scheme, u.fontName, u.textSize = defaultSchemeName(), defaultFontName, defaultTextSize
-		scheme.SetSelected(u.scheme)
-		font.SetSelected(u.fontName)
-		size.SetSelected(fmt.Sprintf("%g", u.textSize))
-		u.applyAppearance()
-	})
-
-	form := widget.NewForm(
-		widget.NewFormItem("Color scheme", scheme),
-		widget.NewFormItem("Font", font),
-		widget.NewFormItem("Text size", size),
-	)
-
-	note := widget.NewLabel(
-		"These are saved and restored the next time the window opens, alongside the store " +
-			"directory. That is everything this application persists: the preferences file " +
-			"holds no fingerprint, no passphrase, and nothing out of the store itself.")
-	note.Wrapping = fyne.TextWrapWord
-	note.Importance = widget.LowImportance
-
-	fontNote := widget.NewLabel(
-		"Fonts are read from the system font directories. Fyne draws its own text and does " +
-			"not consult fontconfig, so this list is what was found on disk rather than what " +
-			"the desktop is configured to use. A family with no bold or italic face is drawn " +
-			"in its regular face for those styles.")
-	fontNote.Wrapping = fyne.TextWrapWord
-	fontNote.Importance = widget.LowImportance
-
-	schemeNote := widget.NewLabel(
-		"The KDE schemes are transcribed from /usr/share/color-schemes; the Adwaita ones from " +
-			"libadwaita's named colors. They are compiled in, so the window does not follow the " +
-			"desktop's current scheme and does not need KDE or GNOME installed.")
-	schemeNote.Wrapping = fyne.TextWrapWord
-	schemeNote.Importance = widget.LowImportance
-
-	sample := container.NewVBox(
-		widget.NewLabelWithStyle("Sample", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabel("Regular text at the chosen size."),
-		widget.NewLabelWithStyle("Bold text, as used for headings.", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("ssh/id_ed25519  ·  464 B  ·  monospace stays monospace",
-			fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}),
-		container.NewHBox(
-			widgets.StatusText("good", fd.StatusGood), widgets.StatusText("warning", fd.StatusWarn), widgets.StatusText("bad", fd.StatusBad),
-		),
-	)
-
-	return container.NewVScroll(container.NewVBox(
-		widgets.Heading("Appearance", "How this window looks. Fyne draws its own widgets, so this is what decides whether it sits well next to the rest of your desktop."),
-		form,
-		container.NewHBox(reset),
-		note,
-		widget.NewSeparator(),
-		sample,
-		widget.NewSeparator(),
-		schemeNote,
-		fontNote,
-	))
 }

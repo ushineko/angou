@@ -95,14 +95,16 @@ capability the other lacks.
   navigation would be intolerable, so those machines refresh on request: a Refresh
   action, F5, and Ctrl+R. Showing a listing that no longer matches the store is how
   someone removes the wrong file.
-- **Nothing transient may reflow the interface.** Progress and result banners appear in
-  a fixed region at the bottom of the window or floated over the content — never
-  inserted above it. A banner that pushes the section down moves the row under the
-  pointer out from under it, mid-click, in a window whose row actions include Remove.
-  The progress slot in the status bar keeps its height whether or not anything is
-  running, so starting and finishing an operation does not resize the bar either.
-- **Every core call from the GUI shows progress.** `ui.busy(what)` shows what is
-  running in the status bar and returns the function that clears it; `withSession`
+- **Nothing transient may reflow the interface.** Progress and result banners float
+  over the content as popups — never inserted above it. A banner that pushes the
+  section down moves the row under the pointer out from under it, mid-click, in a
+  window whose row actions include Remove. Both were fixed-height regions of this
+  window until it adopted fynedesygn (spec 003): a 48 px banner slot above the status
+  bar and an 18 px progress strip inside it. The library floats both, which is what
+  the other two programs on it do, and the rule is the same either way.
+- **Every core call from the GUI shows progress.** `u.sh.Busy(what)` puts the library's
+  progress popup up after 300 ms and returns the function that takes it down;
+  `withSession`
   wraps it around every session operation, and a raw `go func()` calling into core
   needs its own. Not only the obviously slow ones: opening a store can mean an Argon2id
   derivation or a wallet raising its own dialog, a scan walks a tree of unknown size,

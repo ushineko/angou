@@ -670,9 +670,16 @@ It is built with Fyne, which draws its own widgets rather than using the platfor
 toolkit, so it is not a GTK or Qt application and does not inherit your widget style. It
 does inherit your colours: the schemes under **Appearance** are transcribed from the
 desktops' own files, so it looks best on KDE Plasma (Breeze Dark, Breeze Light, Oxygen
-Dark) and GNOME (Adwaita Dark, Adwaita Light). A font and text-size picker sits beside
-them. Those settings and the store directory are all the GUI saves between runs; the file
-holds no fingerprint, no passphrase, and nothing out of the store.
+Dark) and GNOME (Adwaita Dark, Adwaita Light), with Windows and macOS schemes beside
+them. A font and text-size picker sits there too. Those settings and the store directory
+are all the GUI saves between runs; the file holds no fingerprint, no passphrase, and
+nothing out of the store.
+
+The window itself — its colours, fonts, navigation, status bar, banners, progress
+indicator and dialogs — is [fynedesygn](https://github.com/ushineko/fynedesygn), a small
+design-system library for Fyne. It was written here, copied by hand into two other
+programs, and extracted into a library that all three now share; angou was the last of
+them still carrying its own copy.
 
 The GUI finds its store from `$ANGOU_STORE` when set, and otherwise from the directory you
 last chose with **Store…** — which is the same remembered path `angou use` reads and
@@ -931,9 +938,10 @@ machine from it.
 It exists for the directory scan, which becomes a list you tick; the `doctor` report,
 which becomes ranked; and the listing, which becomes something you can act on.
 
-Built with Fyne. The colour schemes are transcribed from the desktops' own files, so it
-looks best on KDE Plasma (Breeze Dark, Breeze Light, Oxygen Dark) and GNOME (Adwaita Dark
-and Light), with a font and text-size picker beside them. - **Operations moved into
+Built with Fyne, on the [fynedesygn](https://github.com/ushineko/fynedesygn) design
+system. The colour schemes are transcribed from the desktops' own files, so it looks best
+on KDE Plasma (Breeze Dark, Breeze Light, Oxygen Dark) and GNOME (Adwaita Dark and Light),
+with Windows and macOS schemes and a font and text-size picker beside them. - **Operations moved into
 `internal/core`.** Both front ends run on it and neither reimplements an operation. The
 CLI's output is unchanged, byte for byte; `tools/regress.sh` holds it there by diffing
 against a previous commit's binary. - **The scan finds private keys by their header, not
