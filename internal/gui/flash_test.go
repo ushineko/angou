@@ -1,6 +1,8 @@
 package gui
 
 import (
+	fd "github.com/ushineko/fynedesygn"
+
 	"testing"
 
 	"fyne.io/fyne/v2/container"
@@ -21,12 +23,12 @@ func testUI(t *testing.T) *ui {
 // A failure waits to be dismissed. One that removes itself on a timer is an
 // error nobody read, describing an operation that has already not happened.
 func TestFlashKeepsFailuresUntilDismissed(t *testing.T) {
-	_, fades := flashHold(StatusBad)
+	_, fades := flashHold(fd.StatusBad)
 	require.False(t, fades, "a failure must not clear itself")
 
-	warn, fades := flashHold(StatusWarn)
+	warn, fades := flashHold(fd.StatusWarn)
 	require.True(t, fades)
-	good, _ := flashHold(StatusGood)
+	good, _ := flashHold(fd.StatusGood)
 	require.Greater(t, warn, good, "a warning names a condition to act on, so it stays longer")
 	require.GreaterOrEqual(t, good.Seconds(), 5.0,
 		"a banner must be up long enough to read, not merely long enough to notice")
@@ -38,10 +40,10 @@ func TestFlashKeepsFailuresUntilDismissed(t *testing.T) {
 func TestFlashShowsOneBannerAtATime(t *testing.T) {
 	u := testUI(t)
 
-	u.flash("first", StatusGood)
+	u.flash("first", fd.StatusGood)
 	require.Len(t, u.flashes.Objects, 1)
 
-	u.flash("second", StatusBad)
+	u.flash("second", fd.StatusBad)
 	require.Len(t, u.flashes.Objects, 1, "a newer result replaces the older one")
 }
 
@@ -50,9 +52,9 @@ func TestFlashShowsOneBannerAtATime(t *testing.T) {
 func TestClearFlashIgnoresAStaleTimer(t *testing.T) {
 	u := testUI(t)
 
-	u.flash("first", StatusGood)
+	u.flash("first", fd.StatusGood)
 	stale := u.flashSeq
-	u.flash("second", StatusGood)
+	u.flash("second", fd.StatusGood)
 
 	u.clearFlash(stale)
 	require.Len(t, u.flashes.Objects, 1, "the newer banner still owns the slot")

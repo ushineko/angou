@@ -3,6 +3,8 @@ package gui
 import (
 	"time"
 
+	fd "github.com/ushineko/fynedesygn"
+
 	"github.com/ushineko/angou/internal/core"
 )
 
@@ -40,26 +42,11 @@ type ScanCandidate struct {
 	Stored   bool // already in the store; shown but not selectable
 }
 
-// Status ranks a doctor row so the report can be read at a glance rather than
-// parsed line by line (R5.5).
-type Status int
-
-const (
-	// StatusInfo is a plain fact with no judgement attached.
-	StatusInfo Status = iota
-	// StatusGood is a state the user wants to be in.
-	StatusGood
-	// StatusWarn is a state that needs an action but has broken nothing yet.
-	StatusWarn
-	// StatusBad is a state that is already costing the user something.
-	StatusBad
-)
-
 // DoctorRow is one finding. DoctorGroup is the subject it belongs to.
 type DoctorRow struct {
 	Label  string
 	Value  string
-	Status Status
+	Status fd.Status
 	Note   string // shown under the row when the value alone does not explain itself
 }
 

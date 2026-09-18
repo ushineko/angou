@@ -52,8 +52,14 @@ $(BINDIR)/bin/$(LINT_PROGRAM):
 setup: install-lint ## Setup system for local development
 	@echo "Make sure your system path includes GOPATH/bin. See README.md for details."
 
-# Pin lint to the Go toolchain in go.mod so results match CI regardless of system Go version.
-LINT_GO_TOOLCHAIN := $(shell grep '^toolchain' go.mod | awk '{print $$2}')
+# Pin lint to a Go toolchain so results match CI regardless of system Go version.
+#
+# Read from go.mod's toolchain line until the fynedesygn adoption raised the go
+# directive to 1.26.0 and go removed that line as redundant, leaving this empty
+# and the linter running under whatever Go is installed -- which panics when
+# that is newer than the Go the linter binary was built with. Pinned literally
+# now, as nmsbonker and fynedesygn do.
+LINT_GO_TOOLCHAIN?=go1.26.0
 
 .PHONY: lint
 lint: export GOTOOLCHAIN = $(LINT_GO_TOOLCHAIN)

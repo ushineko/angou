@@ -10,6 +10,9 @@ import (
 	"fyne.io/fyne/v2"
 
 	angoucontainer "github.com/ushineko/angou/internal/container"
+
+	fd "github.com/ushineko/fynedesygn"
+
 	"github.com/ushineko/angou/internal/core"
 	"github.com/ushineko/angou/internal/store"
 )
@@ -75,7 +78,7 @@ func (u *ui) storeDir() string {
 func (u *ui) setStoreDir(dir string) {
 	if err := core.RememberStore(dir); err != nil {
 		u.flash("Could not remember "+dir+" as this machine's store: "+err.Error()+
-			". This window is using it, but the command line and the next run will not.", StatusWarn)
+			". This window is using it, but the command line and the next run will not.", fd.StatusWarn)
 	}
 	u.session = Session{StoreDir: dir}
 	// Everything on screen describes the previous store.
@@ -87,7 +90,7 @@ func (u *ui) setStoreDir(dir string) {
 	u.rebuild()
 	if os.Getenv(StoreEnv) != "" && os.Getenv(StoreEnv) != dir {
 		u.flash("$"+StoreEnv+" is set and takes precedence, so this window is still using "+
-			os.Getenv(StoreEnv)+".", StatusWarn)
+			os.Getenv(StoreEnv)+".", fd.StatusWarn)
 	}
 }
 
@@ -127,7 +130,7 @@ func (g guiDecider) Ask(d core.Decision) bool {
 func (u *ui) events() core.Events {
 	return core.Events{
 		Notice: func(msg string) {
-			fyne.Do(func() { u.flash(msg, StatusWarn) })
+			fyne.Do(func() { u.flash(msg, fd.StatusWarn) })
 		},
 	}
 }
@@ -142,7 +145,7 @@ func (u *ui) events() core.Events {
 func (u *ui) withSession(what string, fn func(*core.Session) error) {
 	dir := u.storeDir()
 	if dir == "" {
-		u.flash("No store is configured. Set $"+StoreEnv+" or run the first-run setup.", StatusBad)
+		u.flash("No store is configured. Set $"+StoreEnv+" or run the first-run setup.", fd.StatusBad)
 		return
 	}
 	go func() {
@@ -169,7 +172,7 @@ func (u *ui) report(what string, err error) {
 	if errors.Is(err, core.ErrNoSecret) || errors.Is(err, core.ErrDeclined) {
 		return // the user answered no; that is not a failure to report
 	}
-	fyne.Do(func() { u.flash(what+": "+err.Error(), StatusBad) })
+	fyne.Do(func() { u.flash(what+": "+err.Error(), fd.StatusBad) })
 }
 
 // ok reports a completed operation, and treats what is on screen as stale.
@@ -181,7 +184,7 @@ func (u *ui) report(what string, err error) {
 // removes the wrong file.
 func (u *ui) ok(msg string) {
 	fyne.Do(func() {
-		u.flash(msg, StatusGood)
+		u.flash(msg, fd.StatusGood)
 		u.invalidate()
 	})
 }
@@ -235,7 +238,7 @@ func (u *ui) loadEntries() {
 			u.session.Route = route
 			if !trusted {
 				u.flash("The index is missing or did not verify, so this listing is empty. "+
-					"Reindex rebuilds it from the blobs themselves.", StatusWarn)
+					"Reindex rebuilds it from the blobs themselves.", fd.StatusWarn)
 			}
 			u.rebuild()
 		})
@@ -328,16 +331,16 @@ func entryFrom(s *core.Session, e store.IndexEntry) StoreEntry {
 // statusFrom maps a core severity onto the window's own ranking. They are
 // deliberately separate types: core's is about the finding, this one is about
 // how to paint it.
-func statusFrom(s core.Severity) Status {
+func statusFrom(s core.Severity) fd.Status {
 	switch s {
 	case core.SeverityGood:
-		return StatusGood
+		return fd.StatusGood
 	case core.SeverityWarn:
-		return StatusWarn
+		return fd.StatusWarn
 	case core.SeverityBad:
-		return StatusBad
+		return fd.StatusBad
 	}
-	return StatusInfo
+	return fd.StatusInfo
 }
 
 // formatMode renders a POSIX mode as rwxr-xr-x. The CLI has its own copy beside
@@ -367,7 +370,7 @@ func (u *ui) encryptSelected(cands []ScanCandidate) {
 		}
 	}
 	if len(chosen) == 0 {
-		u.flash("Nothing is selected.", StatusWarn)
+		u.flash("Nothing is selected.", fd.StatusWarn)
 		return
 	}
 
@@ -378,7 +381,7 @@ func (u *ui) encryptSelected(cands []ScanCandidate) {
 					if err != nil {
 						path := src
 						cause := err
-						fyne.Do(func() { u.flash("Skipped "+path+": "+cause.Error(), StatusWarn) })
+						fyne.Do(func() { u.flash("Skipped "+path+": "+cause.Error(), fd.StatusWarn) })
 					}
 				},
 			})
@@ -399,12 +402,12 @@ func (u *ui) encryptSelected(cands []ScanCandidate) {
 // derivation.
 func (u *ui) createStore(dir string, generate, bootstrap bool) {
 	if dir == "" {
-		u.flash("Choose a directory for the store first.", StatusWarn)
+		u.flash("Choose a directory for the store first.", fd.StatusWarn)
 		return
 	}
 	if core.StoreExists(dir) {
 		u.flash(dir+" already holds a store. Choose \"Open a store that already exists\" to "+
-			"use it; initializing over it is not offered.", StatusBad)
+			"use it; initializing over it is not offered.", fd.StatusBad)
 		return
 	}
 
@@ -512,7 +515,7 @@ func (u *ui) startScan(root string) {
 			if len(out) == 0 {
 				u.flash("Nothing under "+root+" looked like a credential. That is not an "+
 					"assurance: the scan knows the usual names and places, not every way a "+
-					"secret can be written down.", StatusInfo)
+					"secret can be written down.", fd.StatusInfo)
 			}
 			u.refresh()
 		})

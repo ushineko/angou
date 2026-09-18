@@ -3,18 +3,17 @@ package gui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/storage"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	angoucontainer "github.com/ushineko/angou/internal/container"
+
+	fd "github.com/ushineko/fynedesygn"
+	"github.com/ushineko/fynedesygn/dialogs"
+
 	"github.com/ushineko/angou/internal/core"
 )
 
@@ -24,27 +23,6 @@ func zero(b []byte) {
 	for i := range b {
 		b[i] = 0
 	}
-}
-
-// confirmDestructive is R6.1: a confirmation that names what is about to happen
-// in at least the detail the CLI gives, with the destructive button styled as
-// destructive and the cancel as the safe default.
-func (u *ui) confirmDestructive(title, detail, confirm string, do func()) {
-	body := widget.NewLabel(detail)
-	body.Wrapping = fyne.TextWrapWord
-
-	d := dialog.NewCustomWithoutButtons(title, container.NewVBox(body), u.win)
-
-	cancel := widget.NewButton("Cancel", func() { d.Hide() })
-	proceed := widget.NewButton(confirm, func() {
-		d.Hide()
-		do()
-	})
-	proceed.Importance = widget.DangerImportance
-
-	d.SetButtons([]fyne.CanvasObject{cancel, proceed})
-	d.Resize(fyne.NewSize(520, 300))
-	d.Show()
 }
 
 // decryptDialog shows the choices `dec` takes as flags: where the plaintext
@@ -146,7 +124,7 @@ func (u *ui) newFirstRunForm() *firstRunForm {
 	openNote.Importance = widget.LowImportance
 
 	f.openBody = container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Directory", u.withBrowse(f.openDir, true))),
+		widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.win, f.openDir, true))),
 		f.openBootstrap,
 		openNote,
 	)
@@ -169,7 +147,7 @@ func (u *ui) newFirstRunForm() *firstRunForm {
 	warn.Importance = widget.WarningImportance
 
 	f.newBody = container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Directory", u.withBrowse(f.newDir, true))),
+		widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.win, f.newDir, true))),
 		f.generate, f.bootstrap,
 		widget.NewSeparator(),
 		warn,
@@ -231,12 +209,12 @@ func (u *ui) firstRun() {
 // cannot disagree about what counts as a store.
 func (u *ui) useStore(dir string) bool {
 	if dir == "" {
-		u.flash("Choose the directory the store is in first.", StatusWarn)
+		u.flash("Choose the directory the store is in first.", fd.StatusWarn)
 		return false
 	}
 	if !core.StoreExists(dir) {
 		u.flash(dir+" does not hold a store. Check the path, or create a store there instead.",
-			StatusBad)
+			fd.StatusBad)
 		return false
 	}
 	u.setStoreDir(dir)
@@ -279,28 +257,13 @@ func (u *ui) openExistingStore(dir string, bootstrap bool) {
 			// and the user should not be told otherwise.
 			u.flash("Opened the store at "+dir+", but this machine has no keyring, so the "+
 				"identity was not re-protected here and the recovery passphrase is still "+
-				"what opens the store.", StatusWarn)
+				"what opens the store.", fd.StatusWarn)
 		}
 		// The session that just bootstrapped holds the store open; the listing
 		// is fetched with it rather than by opening a second time.
 		fyne.Do(u.loadEntries)
 		return nil
 	})
-}
-
-// fixedHeight and fixedWidth pin a widget's minimum size. Fyne's list and table
-// take all the space they are given; these keep a section's layout stable while
-// it is being looked at.
-func fixedHeight(o fyne.CanvasObject, h float32) fyne.CanvasObject {
-	pad := canvas.NewRectangle(nil)
-	pad.SetMinSize(fyne.NewSize(0, h))
-	return container.New(layout.NewStackLayout(), pad, o)
-}
-
-func fixedWidth(o fyne.CanvasObject, w float32) fyne.CanvasObject {
-	pad := canvas.NewRectangle(nil)
-	pad.SetMinSize(fyne.NewSize(w, 0))
-	return container.New(layout.NewStackLayout(), pad, o)
 }
 
 // askPassphrase puts core's passphrase request on screen and sends the answer
@@ -380,18 +343,6 @@ func (u *ui) askDecision(dec core.Decision, answer chan<- bool) {
 
 // --- operation dialogs -----------------------------------------------------
 
-// pathDialog is the shape most of these take: a heading, one or more fields,
-// and a confirm that hands the values to a core call.
-func (u *ui) pathDialog(title, confirm string, body fyne.CanvasObject, do func()) {
-	d := dialog.NewCustomConfirm(title, confirm, "Cancel", body, func(ok bool) {
-		if ok {
-			do()
-		}
-	}, u.win)
-	d.Resize(fyne.NewSize(560, 300))
-	d.Show()
-}
-
 // extractDialog asks for a destination root. Extraction is confined beneath it
 // and will not traverse a symlink to leave it, because a stored path is
 // untrusted input: whoever can write to the store chooses it.
@@ -404,8 +355,8 @@ func (u *ui) extractDialog(e StoreEntry) {
 	note.Wrapping = fyne.TextWrapWord
 	note.Importance = widget.LowImportance
 
-	u.pathDialog("Extract "+e.LogicalPath, "Extract",
-		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", u.withBrowse(dest, true))), note),
+	dialogs.Prompt(u.win, "Extract "+e.LogicalPath, "Extract",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Destination", dialogs.WithBrowse(u.win, dest, true))), note),
 		func() {
 			u.withSession("Extract", func(s *core.Session) error {
 				written, err := s.Extract(e.LogicalPath, dest.Text)
@@ -430,7 +381,7 @@ func (u *ui) renameDialog(e StoreEntry) {
 	note.Wrapping = fyne.TextWrapWord
 	note.Importance = widget.LowImportance
 
-	u.pathDialog("Rename "+e.LogicalPath, "Rename",
+	dialogs.Prompt(u.win, "Rename "+e.LogicalPath, "Rename",
 		container.NewVBox(widget.NewForm(widget.NewFormItem("New path", to)), note),
 		func() {
 			u.withSession("Rename", func(s *core.Session) error {
@@ -453,8 +404,8 @@ func (u *ui) encryptFileDialog() {
 	as.SetPlaceHolder("store path (leave empty to derive one)")
 	binary := widget.NewCheck("Store raw OpenPGP packets instead of ASCII armor", nil)
 
-	u.pathDialog("Encrypt a file", "Encrypt", container.NewVBox(widget.NewForm(
-		widget.NewFormItem("File", u.withBrowse(src, false)),
+	dialogs.Prompt(u.win, "Encrypt a file", "Encrypt", container.NewVBox(widget.NewForm(
+		widget.NewFormItem("File", dialogs.WithBrowse(u.win, src, false)),
 		widget.NewFormItem("Store as", as),
 	), binary), func() {
 		u.withSession("Encrypt", func(s *core.Session) error {
@@ -474,8 +425,8 @@ func (u *ui) cloneDialog() {
 	to.SetPlaceHolder("destination, which must not already exist")
 	noBinaries := widget.NewCheck("Leave the platform binaries behind", nil)
 
-	u.pathDialog("Clone the store", "Clone", container.NewVBox(
-		widget.NewForm(widget.NewFormItem("Destination", u.withBrowse(to, true))), noBinaries), func() {
+	dialogs.Prompt(u.win, "Clone the store", "Clone", container.NewVBox(
+		widget.NewForm(widget.NewFormItem("Destination", dialogs.WithBrowse(u.win, to, true))), noBinaries), func() {
 		from := u.storeDir()
 		go func() {
 			done := u.busy("Copying the store…")
@@ -543,82 +494,13 @@ func (u *ui) chooseStore() {
 		env.Importance = widget.WarningImportance
 	}
 
-	u.pathDialog("Choose a store", "Use this store",
-		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", u.withBrowse(dir, true))), note, env),
+	dialogs.Prompt(u.win, "Choose a store", "Use this store",
+		container.NewVBox(widget.NewForm(widget.NewFormItem("Directory", dialogs.WithBrowse(u.win, dir, true))), note, env),
 		func() {
 			if u.useStore(dir.Text) {
-				u.flash("Now using the store at "+dir.Text, StatusGood)
+				u.flash("Now using the store at "+dir.Text, fd.StatusGood)
 			}
 		})
 }
 
 // --- file chooser ----------------------------------------------------------
-
-// pickerStart is where a chooser should open: the path already in the field if
-// it names a directory, otherwise its parent, otherwise the home directory.
-// A field left empty, or holding something that no longer exists, must not
-// leave the chooser at whatever directory the process happens to be in.
-func pickerStart(text string) fyne.ListableURI {
-	candidates := []string{}
-	if p := core.ExpandPath(text); p != "" {
-		candidates = append(candidates, p, filepath.Dir(p))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, home)
-	}
-	for _, c := range candidates {
-		if fi, err := os.Stat(c); err != nil || !fi.IsDir() {
-			continue
-		}
-		if lu, err := storage.ListerForURI(storage.NewFileURI(c)); err == nil {
-			return lu
-		}
-	}
-	return nil
-}
-
-// browseButton is the affordance beside a path field: it opens the platform
-// chooser and writes the chosen path back into the field. The field stays
-// editable — a path can still be typed or pasted, which is the only way to
-// reach somewhere the chooser will not show.
-//
-// `dir` picks a directory chooser rather than a file one.
-func (u *ui) browseButton(field *widget.Entry, dir bool) *widget.Button {
-	choose := func() {
-		if dir {
-			d := dialog.NewFolderOpen(func(lu fyne.ListableURI, err error) {
-				if err != nil || lu == nil {
-					return
-				}
-				field.SetText(lu.Path())
-			}, u.win)
-			d.SetLocation(pickerStart(field.Text))
-			// Resize only after Show. Before Show the dialog has no window,
-			// and Resize asks it for its minimum size — which in fyne 2.8.1
-			// dereferences that nil window and takes the process with it.
-			d.Show()
-			d.Resize(fyne.NewSize(760, 520))
-			return
-		}
-		d := dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
-			if err != nil || rc == nil {
-				return
-			}
-			// The chooser hands back an open handle; angou reads the file
-			// itself, by path, so close it immediately rather than holding a
-			// descriptor open for the life of the dialog.
-			path := rc.URI().Path()
-			_ = rc.Close()
-			field.SetText(path)
-		}, u.win)
-		d.SetLocation(pickerStart(field.Text))
-		d.Show()
-		d.Resize(fyne.NewSize(760, 520))
-	}
-	return widget.NewButtonWithIcon("Browse…", theme.FolderOpenIcon(), choose)
-}
-
-// withBrowse lays a path field out with its chooser button on the right.
-func (u *ui) withBrowse(field *widget.Entry, dir bool) fyne.CanvasObject {
-	return container.NewBorder(nil, nil, nil, u.browseButton(field, dir), field)
-}

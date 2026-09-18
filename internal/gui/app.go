@@ -9,7 +9,6 @@
 package gui
 
 import (
-	"fmt"
 	"image/color"
 	"os"
 	"strings"
@@ -24,6 +23,9 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	fd "github.com/ushineko/fynedesygn"
+	"github.com/ushineko/fynedesygn/widgets"
 
 	"github.com/ushineko/angou/internal/buildinfo"
 	"github.com/ushineko/angou/internal/core"
@@ -265,7 +267,7 @@ func Run(o Options) {
 	// The banner scrolls inside the slot rather than growing it, so a long
 	// message cannot reflow the window either.
 	u.frame = container.NewVBox(
-		fixedHeight(container.NewVScroll(u.flashes), flashSlotHeight),
+		widgets.FixedHeight(container.NewVScroll(u.flashes), flashSlotHeight),
 		u.statusBar(),
 	)
 	u.win.SetContent(container.NewBorder(u.header(), u.frame, nil, nil, split))
@@ -368,21 +370,21 @@ func (u *ui) statusBar() fyne.CanvasObject {
 		dir = "none chosen"
 	}
 	store := widget.NewLabel(dir)
-	route := statusText(u.session.Route.String(), routeStatus(u.session.Route))
+	route := widgets.StatusText(u.session.Route.String(), routeStatus(u.session.Route))
 
 	agentTxt := "no session"
-	agentStatus := StatusInfo
+	agentStatus := fd.StatusInfo
 	if u.session.Agent.Running {
 		agentTxt = "session " + u.session.Agent.Remaining.Round(time.Second).String() + " remaining"
-		agentStatus = StatusGood
+		agentStatus = fd.StatusGood
 	}
-	agent := statusText(agentTxt, agentStatus)
+	agent := widgets.StatusText(agentTxt, agentStatus)
 
 	// "unlocked by not open" is not a sentence. Before the store has been
 	// opened the bar says so plainly instead.
-	unlocked := container.NewHBox(dim("unlocked by"), route)
+	unlocked := container.NewHBox(widgets.Dim("unlocked by"), route)
 	if u.session.Route == core.RouteNone {
-		unlocked = container.NewHBox(dim("state"), statusText("not open yet", StatusInfo))
+		unlocked = container.NewHBox(widgets.Dim("state"), widgets.StatusText("not open yet", fd.StatusInfo))
 	}
 
 	// One HBox, laid out left to right, with a spacer pushing the progress slot
@@ -391,9 +393,9 @@ func (u *ui) statusBar() fyne.CanvasObject {
 	// from the slot's own width — so a long store path pushed the two into each
 	// other. Sequential layout cannot overlap.
 	bar := container.NewHBox(
-		dim("store"), store, sep(),
-		unlocked, sep(),
-		dim("agent"), agent,
+		widgets.Dim("store"), store, widgets.Sep(),
+		unlocked, widgets.Sep(),
+		widgets.Dim("agent"), agent,
 		layout.NewSpacer(),
 		u.busyStrip(),
 	)
@@ -447,14 +449,14 @@ const (
 	busyLabelWidth  = 260
 )
 
-func routeStatus(r core.Route) Status {
+func routeStatus(r core.Route) fd.Status {
 	switch r {
 	case core.RouteLocalKey, core.RouteAgent:
-		return StatusGood
+		return fd.StatusGood
 	case core.RouteRecovery:
-		return StatusWarn
+		return fd.StatusWarn
 	}
-	return StatusInfo
+	return fd.StatusInfo
 }
 
 // busy shows an indeterminate progress banner until the returned function is
@@ -542,11 +544,11 @@ const (
 // A failure does not: it waits to be dismissed, or until another operation
 // replaces it. An error that removes itself on a timer is an error nobody read,
 // and the operation it describes has already not happened.
-func flashHold(st Status) (time.Duration, bool) {
+func flashHold(st fd.Status) (time.Duration, bool) {
 	switch st {
-	case StatusBad:
+	case fd.StatusBad:
 		return 0, false
-	case StatusWarn:
+	case fd.StatusWarn:
 		return flashHoldWarn, true
 	default:
 		return flashHoldGood, true
@@ -570,7 +572,7 @@ func flashHold(st Status) (time.Duration, bool) {
 // the status tint to fully transparent. The text is left at full strength for
 // the whole life of the banner, which is the accessible choice anyway — fading
 // text out is harder to read at every intermediate step.
-func (u *ui) flash(text string, st Status) {
+func (u *ui) flash(text string, st fd.Status) {
 	u.flashSeq++
 	seq := u.flashSeq
 
@@ -588,7 +590,7 @@ func (u *ui) flash(text string, st Status) {
 	dismiss.Importance = widget.LowImportance
 
 	banner := container.NewStack(bg, container.NewPadded(
-		container.NewBorder(nil, nil, marker(st), dismiss, label)))
+		container.NewBorder(nil, nil, widgets.Marker(st), dismiss, label)))
 	u.flashes.Objects = []fyne.CanvasObject{banner}
 	u.flashes.Refresh()
 
@@ -629,15 +631,15 @@ func (u *ui) clearFlash(seq int) {
 
 // flashTint is the banner's starting colour: the status role from the active
 // scheme, at low alpha so text stays readable over it in all five schemes.
-func (u *ui) flashTint(st Status) color.NRGBA {
+func (u *ui) flashTint(st fd.Status) color.NRGBA {
 	p := paletteByName(u.scheme)
 	var c color.Color
 	switch st {
-	case StatusGood:
+	case fd.StatusGood:
 		c = p.positive
-	case StatusWarn:
+	case fd.StatusWarn:
 		c = p.neutral
-	case StatusBad:
+	case fd.StatusBad:
 		c = p.negative
 	default:
 		c = p.selectionBG
@@ -647,58 +649,6 @@ func (u *ui) flashTint(st Status) color.NRGBA {
 }
 
 // --- small shared widgets -------------------------------------------------
-
-func dim(s string) fyne.CanvasObject {
-	l := widget.NewLabel(s)
-	l.Importance = widget.LowImportance
-	return l
-}
-
-func sep() fyne.CanvasObject { return widget.NewLabel("·") }
-
-// statusText colours a value by its status. The colour is drawn from the active
-// scheme's negative/positive/neutral roles, so it stays legible in all three.
-func statusText(s string, st Status) fyne.CanvasObject {
-	l := widget.NewLabel(s)
-	switch st {
-	case StatusGood:
-		l.Importance = widget.SuccessImportance
-	case StatusWarn:
-		l.Importance = widget.WarningImportance
-	case StatusBad:
-		l.Importance = widget.DangerImportance
-	}
-	return l
-}
-
-func heading(title, blurb string) fyne.CanvasObject {
-	h := widget.NewLabelWithStyle(title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	b := widget.NewLabel(blurb)
-	b.Wrapping = fyne.TextWrapWord
-	b.Importance = widget.LowImportance
-	return container.NewVBox(h, b, widget.NewSeparator())
-}
-
-func humanSize(n int64) string {
-	switch {
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
-	}
-	return fmt.Sprintf("%d B", n)
-}
-
-func humanAgo(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	}
-	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-}
 
 // Actions is every operation this window can reach, named by the CLI command it
 // corresponds to.
