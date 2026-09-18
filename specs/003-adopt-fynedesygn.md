@@ -3,9 +3,24 @@
 > **Note**: This work has no associated issue tracker ticket. The repository
 > is a personal public project without an issue tracker.
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
+
+`internal/gui` imports `github.com/ushineko/fynedesygn` v0.1.4 for its design
+system and runs the window on the library's shell; the palettes, the font
+scanner, the cursor fix, the small widgets and the generic dialogs — all of
+which were written here and copied out — are deleted, and the package's
+non-test code goes from 3,728 to 2,373 lines while gaining the Windows
+schemes, a monospace-font picker and an interface scale. angou was the origin
+of this design system and is the last of its three programs to stop carrying
+its own copy. Behaviour is kept: the same preference keys, sections,
+operations and store handling, and every dialog that touches key material
+stays in this package. Two deliberate changes are visible — progress is a
+modal popup rather than an 18 px strip in the status bar, and result banners
+float rather than sitting in a reserved 48 px slot. Reviewers should start
+with `app.go` (the `ui` struct, `shellOptions`, `arrive`, `statusSegments`)
+and the "Gaps found" list.
 
 ## Context
 
@@ -93,30 +108,44 @@ application concepts — says the same thing from the other side.
 
 ## Acceptance Criteria
 
-- [ ] AC1 `go.mod` requires `github.com/ushineko/fynedesygn` v0.1.4 with no
+- [x] AC1 `go.mod` requires `github.com/ushineko/fynedesygn` v0.1.4 with no
   `replace`, and `go mod tidy` leaves the `golang.org/x/*` modules at or above
   their current versions (R1).
-- [ ] AC2 The grep `func (u \*ui) (busy|flash|clearFlash|redrawStatus|rebuild|refresh|show|header|statusBar|busyStrip)\(` over `internal/gui` finds nothing (R2.2).
-- [ ] AC3 `theme.go`, `fonts.go`, `cursor_linux.go` and `cursor_other.go` are
+- [x] AC2 The grep `func (u \*ui) (busy|flash|clearFlash|redrawStatus|rebuild|refresh|show|header|statusBar|busyStrip)\(` over `internal/gui` finds nothing (R2.2).
+- [x] AC3 `theme.go`, `fonts.go`, `cursor_linux.go` and `cursor_other.go` are
   gone, and no file in `internal/gui` carries a "keep in sync by hand" header
   (R2.1, R6).
-- [ ] AC4 `SectionNames()` returns `Store, Encrypt, Doctor, Machine, Release,
+- [x] AC4 `SectionNames()` returns `Store, Encrypt, Doctor, Machine, Release,
   Appearance, About` with no Fyne app; `SchemeNames()` starts with the seven
   it returned before; `Actions()` is unchanged (R4.2, R4.3).
-- [ ] AC5 A saved appearance from the previous build is read unchanged: a test
+- [x] AC5 A saved appearance from the previous build is read unchanged: a test
   writes the three keys, opens the window headlessly and finds the same scheme,
   font and text size (R4.1).
-- [ ] AC6 The passphrase prompt, the recovery-phrase display and `zero` are
+- [x] AC6 The passphrase prompt, the recovery-phrase display and `zero` are
   still in `internal/gui`, and `secret_test.go` still passes (R3.1).
-- [ ] AC7 The first-run flow still opens with no store configured, and
-  `firstrun_test.go` and `browse_test.go` still pass (R3.2, R4.5).
-- [ ] AC8 `make test`, `make lint` and `go vet` clean; every section renders
+- [x] AC7 The first-run flow still opens with no store configured, and
+  `firstrun_test.go` still passes (R3.2, R4.5). `browse_test.go` is deleted
+  rather than kept: both regressions it pinned — the Browse button that
+  panicked when a chooser was resized before it was shown, and the picker
+  start falling back to home — are pinned by the library's own tests against
+  the code that now runs (`dialogs.TestChooserResizeAfterShowDoesNotPanic`,
+  `TestPickerStartPrefersTheFieldThenItsParentThenHome`). Keeping a copy here
+  would test nothing this program owns.
+- [x] AC8 `make test`, `make lint` and `go vet` clean; every section renders
   headlessly in every scheme (R4).
-- [ ] AC9 `govulncheck -mode binary` on the CLI and the GUI: no findings.
-- [ ] AC10 The GUI is run on this machine under a throwaway HOME: Store,
+- [x] AC9 `govulncheck -mode binary` on the CLI and the GUI: no findings.
+  Scanned on binaries built **without** `-w -s`; see "Notes" for why a
+  stripped binary reports packages this program does not import.
+- [x] AC10 The GUI is run on this machine under a throwaway HOME: Store,
   Encrypt, Doctor, Machine, Release, Appearance and About render; a banner
   shows; an operation shows the popup (manual, recorded in the report).
-- [ ] AC11 "Gaps found" is filled, and line counts of `internal/gui` before
+  _Done: all seven captured under a throwaway HOME, XDG and ANGOU_STORE
+  against a real demo store, and checked against the committed 0.3.0 captures
+  — the sections are the same but for the 48 px banner slot, which is content
+  now, and the shell's Refresh joining the two header buttons. One capture
+  shows the busy popup ("Open the store…"), a floating warning banner and
+  this program's own passphrase dialog at once._
+- [x] AC11 "Gaps found" is filled, and line counts of `internal/gui` before
   and after are in the validation report (R5).
 
 ## Risks & Assumptions
@@ -146,4 +175,50 @@ application concepts — says the same thing from the other side.
 
 ## Gaps found
 
-_Filled during implementation._
+1. **The shell does not tell a section why it is being built.** This window
+   drops its loaded flags when the navigation *arrives* at a section and
+   reopening the store would go through silently, so a file encrypted from the
+   command line or synced in from another machine shows up without a restart.
+   The shell rebuilds a section for navigation and for every operation alike
+   through the same builder, and a builder that dropped the flags on a rebuild
+   would start the loads whose completion rebuilds — a window that never stops
+   reading the store. `ui.arrive` keys on the section title changing instead.
+   Library candidate: a `Section` hook that runs on selection rather than on
+   every build, or a flag on the build call saying which it is.
+
+2. **`widgets.Action` hands back the button; this window does not want it.**
+   The library's shape suits a section that gates its buttons while work runs.
+   This one rebuilds from state, so the handle is dropped in a one-line
+   adapter. Not a defect — recorded because a third consumer wanting the same
+   would argue for an `Action` that returns only the row.
+
+3. **A floating banner covers the row of actions at the bottom of a section.**
+   This is the thing the reserved 48 px slot existed to avoid, and the manual
+   run confirms it is real rather than theoretical: the banner sits at
+   y≈1030–1095 in a 1194 px window, and Store's Decrypt / Extract to… /
+   Rename / Remove row is at y≈1089. It is temporary — good banners hold six
+   seconds, warnings twelve, and every banner has a dismiss — where the
+   reserved slot cost 48 px permanently, which is the trade this adoption
+   accepted deliberately. Library candidate: a banner that sits above a
+   section's action row rather than over it, or a shell inset a section can
+   declare.
+
+Nothing here blocked the adoption, and nothing was worked around in a way that
+would have to be undone: `arrive` is four lines, `action` is three, and the
+third is a judgement about a trade, not a workaround.
+
+## Notes
+
+- **`govulncheck -mode binary` is unreliable on a stripped binary.** `make
+  build` links with `-w -s`, and scanning what it produces reports symbols
+  from packages this program does not import: GO-2026-5932 (the unmaintained
+  `golang.org/x/crypto/openpgp`) against this branch, and GO-2026-6355
+  (`x/crypto/ssh` `ssh.Dial`) against `origin/main` built the same way. angou
+  imports neither — it uses `github.com/ProtonMail/go-crypto/openpgp`, and
+  `go list -deps` confirms no `golang.org/x/crypto/openpgp` and no
+  `x/crypto/ssh` in the graph. Built without `-w -s`, both binaries scan
+  clean on both branches. Scan an unstripped build.
+- The adoption does raise `golang.org/x/crypto` from v0.55.0 to v0.57.0,
+  which moves past the real GO-2026-6355 (fixed in v0.56.0). angou does not
+  call it, but a required module on the fixed version is better than one
+  behind it.
