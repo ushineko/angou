@@ -193,23 +193,20 @@ application concepts — says the same thing from the other side.
    adapter. Not a defect — recorded because a third consumer wanting the same
    would argue for an `Action` that returns only the row.
 
-3. **A floating banner covers the row of actions at the bottom of a section.**
-   This is the thing the reserved 48 px slot existed to avoid, and the manual
-   run confirms it is real rather than theoretical: the banner sits at
-   y≈1030–1095 in a 1194 px window, and Store's Decrypt / Extract to… /
-   Rename / Remove row is at y≈1089. It is temporary — good banners hold six
-   seconds, warnings twelve, and every banner has a dismiss — where the
-   reserved slot cost 48 px permanently, which is the trade this adoption
-   accepted deliberately. Library candidate: a banner that sits above a
-   section's action row rather than over it, or a shell inset a section can
-   declare.
-
-Nothing here blocked the adoption, and nothing was worked around in a way that
-would have to be undone: `arrive` is four lines, `action` is three, and the
-third is a judgement about a trade, not a workaround.
+Neither blocked the adoption, and neither was worked around in a way that
+would have to be undone: `arrive` is four lines and `action` is three.
 
 ## Notes
 
+- A floating banner overlaps the row of actions at the bottom of a section —
+  Store's Decrypt / Extract to… / Rename / Remove, Encrypt's Encrypt selected.
+  That is the trade this adoption took knowingly, and it is the right way
+  round: the banner is transient (six seconds, twelve for a warning, a dismiss
+  on every one) and appears after an operation rather than while those
+  controls are being reached for, where the reserved slot cost 48 px of every
+  section permanently. clockwork-orange has run this way since v4.1.0 and
+  nmsbonker since its adoption. Recorded because the reasoning is in this
+  repository's history, not because anything is owed here.
 - **`govulncheck -mode binary` is unreliable on a stripped binary.** `make
   build` links with `-w -s`, and scanning what it produces reports symbols
   from packages this program does not import: GO-2026-5932 (the unmaintained

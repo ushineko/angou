@@ -52,10 +52,10 @@ and the shell's Refresh joining the two header buttons. One capture shows the
 busy popup ("Open the store…"), a floating warning banner and this program's
 own passphrase dialog at once.
 
-The floating banner does overlap the row of actions at the bottom of Store —
-the thing the reserved slot existed to prevent. It is temporary where the slot
-cost 48 px permanently. Recorded in the spec's "Gaps found" as a library
-candidate rather than worked around here.
+The floating banner does overlap the row of actions at the bottom of Store,
+which is the trade this adoption took knowingly: transient, after the fact,
+and dismissable, against 48 px of every section permanently. Noted in the
+spec; nothing is owed.
 
 ## Release safety
 
