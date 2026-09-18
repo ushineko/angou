@@ -36,10 +36,11 @@ installed, which panics when that is newer than the Go the linter was built
 with. Pinned literally now, as nmsbonker and fynedesygn already do.
 
 Lint also caught the one real regression in the port: `opensWithoutAsking`
-went unused, because the shell has no equivalent of the old
-`nav.OnSelected` hook that dropped the loaded flags on arriving at a section.
-Restored as `ui.arrive`, keyed on the section title changing rather than on
-the builder running — see the spec's "Gaps found".
+went unused, because the shell had no equivalent of the old `nav.OnSelected`
+hook that dropped the loaded flags on arriving at a section. Restored as
+`ui.arrive`, first keyed on the section title changing, then — once the
+library grew `shell.Arriver` for exactly this (its spec 009, v0.1.5) — hung
+on that hook instead, which is where it belongs and is four lines shorter.
 
 ## Manual verification (AC10)
 

@@ -64,9 +64,6 @@ type ui struct {
 	sh      *shell.Shell
 	version string
 	session Session
-	// section is the title the navigation last arrived at, so a rebuild of the
-	// section already on screen can be told apart from navigating to it.
-	section string
 
 	// Loaded from the store on a goroutine, read and written on the UI thread.
 	//
@@ -136,36 +133,27 @@ func sections(u *ui) []shell.Section {
 			continue // a title with no builder draws nothing; see SectionNames
 		}
 		out = append(out, shell.NewSection(title, b.icon,
-			func(*shell.Shell) fyne.CanvasObject {
-				u.arrive(title)
-				return b.build(u)
-			}))
+			func(*shell.Shell) fyne.CanvasObject { return b.build(u) }).
+			OnArrive(u.arrive))
 	}
 	return out
 }
 
 /*
-arrive drops the loaded flags when the navigation reaches a different section
-and reopening the store would go through silently.
+arrive drops the loaded flags when the navigation reaches a section and
+reopening the store would go through silently.
 
 Arriving at a section is a good moment to be current, where being current is
-free. The store is a plain directory: the CLI writes to it, and so does whatever
-syncs it between machines. Where reopening means a passphrase prompt, doing that
-on every navigation would be intolerable, so those machines refresh on request
-instead.
+free. The store is a plain directory: the CLI writes to it, and so does
+whatever syncs it between machines. Where reopening means a passphrase prompt,
+doing that on every navigation would be intolerable, so those machines refresh
+on request instead.
 
-Keyed on the title changing rather than on the builder running, because the
-builder also runs for every rebuild an operation causes — and a rebuild that
-dropped the flags would start the loads again, whose completion rebuilds, which
-is a window that never stops reading the store. The shell does not distinguish
-the two for a section, which is the one thing this adoption wanted from it and
-did not have (see the spec's "Gaps found").
+The shell calls this for navigation only, never for the rebuilds an operation
+causes — which is the distinction this needs, because dropping the flags on a
+rebuild would start the loads whose completion rebuilds.
 */
-func (u *ui) arrive(title string) {
-	if title == u.section {
-		return
-	}
-	u.section = title
+func (u *ui) arrive() {
 	if u.opensWithoutAsking() {
 		u.entriesOK, u.doctorOK, u.agentOK = false, false, false
 	}

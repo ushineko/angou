@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-`internal/gui` imports `github.com/ushineko/fynedesygn` v0.1.4 for its design
+`internal/gui` imports `github.com/ushineko/fynedesygn` v0.1.5 for its design
 system and runs the window on the library's shell; the palettes, the font
 scanner, the cursor fix, the small widgets and the generic dialogs — all of
 which were written here and copied out — are deleted, and the package's
@@ -61,7 +61,7 @@ application concepts — says the same thing from the other side.
 
 ## Requirements
 
-- R1 `internal/gui` imports `github.com/ushineko/fynedesygn` v0.1.4 and the
+- R1 `internal/gui` imports `github.com/ushineko/fynedesygn` v0.1.5 and the
   window runs on `shell.Run`. No `replace` directive.
 - R2 These are deleted and replaced by the library:
   - R2.1 `theme.go`, `fonts.go`, `cursor_linux.go`, `cursor_other.go`,
@@ -108,7 +108,7 @@ application concepts — says the same thing from the other side.
 
 ## Acceptance Criteria
 
-- [x] AC1 `go.mod` requires `github.com/ushineko/fynedesygn` v0.1.4 with no
+- [x] AC1 `go.mod` requires `github.com/ushineko/fynedesygn` v0.1.5 with no
   `replace`, and `go mod tidy` leaves the `golang.org/x/*` modules at or above
   their current versions (R1).
 - [x] AC2 The grep `func (u \*ui) (busy|flash|clearFlash|redrawStatus|rebuild|refresh|show|header|statusBar|busyStrip)\(` over `internal/gui` finds nothing (R2.2).
@@ -175,16 +175,17 @@ application concepts — says the same thing from the other side.
 
 ## Gaps found
 
-1. **The shell does not tell a section why it is being built.** This window
+1. **The shell did not tell a section why it was being built.** ~~This window
    drops its loaded flags when the navigation *arrives* at a section and
    reopening the store would go through silently, so a file encrypted from the
    command line or synced in from another machine shows up without a restart.
    The shell rebuilds a section for navigation and for every operation alike
    through the same builder, and a builder that dropped the flags on a rebuild
    would start the loads whose completion rebuilds — a window that never stops
-   reading the store. `ui.arrive` keys on the section title changing instead.
-   Library candidate: a `Section` hook that runs on selection rather than on
-   every build, or a flag on the build call saying which it is.
+   reading the store.~~ **Fixed in the library** as `shell.Arriver` (its spec
+   009, released in v0.1.5) and adopted here in the same branch: `ui.arrive`
+   is the hook now, and the remembered section title it used in the meantime
+   is gone.
 
 2. **`widgets.Action` hands back the button; this window does not want it.**
    The library's shape suits a section that gates its buttons while work runs.

@@ -12,6 +12,7 @@ require (
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
 	github.com/stretchr/testify v1.12.1
+	github.com/ushineko/fynedesygn v0.1.5
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
@@ -43,7 +44,6 @@ require (
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/ushineko/fynedesygn v0.1.4 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/image v0.46.0 // indirect
