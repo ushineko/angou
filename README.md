@@ -806,6 +806,26 @@ suite asserts what someone thought to assert; the diff asserts everything else.
 
 ## Changelog
 
+### 0.5.0
+
+- **The window's design system is a library now.** `internal/gui` imports
+  [fynedesygn](https://github.com/ushineko/fynedesygn) for the colour schemes, the font
+  scanner, the cursor fix, the window shell, the small widgets and the generic dialogs
+  instead of carrying its own copy of them; the package's non-test code drops from 3,728
+  to 2,373 lines. All of it was written here and copied by hand into two other programs
+  of mine, which had already replaced their copies with the extracted library; angou was
+  the last one still carrying the original. Behaviour is kept — the same preference keys,
+  sections, operations and store handling — and everything that touches key material
+  stays in this repository, unchanged.
+- **Two Windows colour schemes, a monospace font picker and an interface scale** come
+  with the library, beside the five KDE/GNOME schemes and the two macOS ones.
+- **Progress and result banners float over the content** instead of occupying fixed
+  regions of the window: an 18 px strip in the status bar and a 48 px slot above it. That
+  space is content now. Nothing transient reflows the interface either way — the rule is
+  unchanged, and the two other programs on the library behave the same.
+- **A rebuilt section keeps its scroll position**, where before every rebuild scrolled
+  back to the top.
+
 ### 0.4.0
 
 - **macOS is now a supported platform, not just a build target.** The CLI and GUI ran on
