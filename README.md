@@ -666,14 +666,38 @@ becomes a list you tick, rather than `--auto` taking everything or a prompt per 
 read the same as "the store directory is here". And the listing becomes something you can
 act on, rather than a table you read before retyping a path into a second command.
 
+The window is seven sections: **Store** (the listing, and what you can do to a row),
+**Encrypt** (the scan), **Doctor** (the ranked report), **Machine** (setting this machine
+up, the agent, and the irreversible operations), **Release** (stashing signed binaries in
+the store), **Appearance**, and **About**. `--section` opens on one directly, and
+`--scheme` uses a colour scheme for that run without saving it.
+
+Every field that takes a path has a **Browse…** button beside it, opening a chooser at
+whatever the field already holds. The field stays editable, which is still the only way to
+reach somewhere the chooser will not show.
+
+Anything loaded from the store is a snapshot: the store is a plain directory, and the CLI
+and whatever syncs it write to the same place. Where reopening the store is free — a
+machine holding a local key, or one with a live agent session — a section reloads when you
+arrive at it. Where reopening means a passphrase prompt, doing that on every navigation
+would be intolerable, so those machines refresh on request: the **Refresh** button, `F5`,
+or `Ctrl+R`.
+
+What an operation did is reported in a banner, and progress in a popup, both floated over
+the content rather than inserted into it. Nothing transient moves the section underneath,
+because a banner that shifts the row under your pointer is a hazard in a window whose row
+actions include **Remove**. A result clears itself after a few seconds; a failure stays
+until you dismiss it.
+
 It is built with Fyne, which draws its own widgets rather than using the platform's
 toolkit, so it is not a GTK or Qt application and does not inherit your widget style. It
 does inherit your colours: the schemes under **Appearance** are transcribed from the
 desktops' own files, so it looks best on KDE Plasma (Breeze Dark, Breeze Light, Oxygen
 Dark) and GNOME (Adwaita Dark, Adwaita Light), with Windows and macOS schemes beside
-them. A font and text-size picker sits there too. Those settings and the store directory
-are all the GUI saves between runs; the file holds no fingerprint, no passphrase, and
-nothing out of the store.
+them. A font and text-size picker sits there too. Those settings are all the GUI keeps to
+itself between runs. The store directory is kept elsewhere, in the file `angou use` reads,
+because it is not the window's business alone. Neither file holds a fingerprint, a
+passphrase, or anything out of the store.
 
 The window itself — its colours, fonts, navigation, status bar, banners, progress
 indicator and dialogs — is [fynedesygn](https://github.com/ushineko/fynedesygn), a small
