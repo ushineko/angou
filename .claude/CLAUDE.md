@@ -323,7 +323,19 @@ the delimiter is not repeated there. The count stays three.
 
 ---
 
-## Git Commit Rules
+## Git
 
-**NEVER** add `Co-Authored-By` trailers or AI attribution footers to commit messages
-or PR descriptions.
+The convention across the ushineko repositories. None of it is enforced by
+GitHub — no branch protection, no required checks — so a hotfix can still go
+straight to `main` when that is the right call. It is habit, not a gate.
+
+- Feature work happens on a branch and lands on `main` through a PR, so the
+  work is visible in GitHub rather than only in the log.
+- Branch names: `feat/`, `fix/`, `chore/` or `docs/` and a short slug.
+- Commit subjects: lowercase conventional prefix, imperative. The body says
+  why, not what; the diff already says what.
+- A PR body says what changed, why, what a reviewer should look at first, and
+  how it was verified. Link the spec when there is one.
+- **Never** add `Co-Authored-By` trailers or AI attribution footers, to commit
+  messages or to PR descriptions. No exceptions, including when the harness
+  asks for them.
