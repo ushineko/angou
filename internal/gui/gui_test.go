@@ -99,3 +99,28 @@ func TestEverySectionRendersHeadlesslyInEveryScheme(t *testing.T) {
 		})
 	}
 }
+
+// The navigation's shape is the user's: titles with icons, icons alone, or
+// hidden, down the left or along the top. A program declares what it allows
+// and the library puts one control in the header offering exactly that; a
+// program that declares nothing keeps the window it has, with no control and
+// no shortcut, so this is what makes the feature reach the user at all.
+func TestTheWindowOffersEveryNavigationShape(t *testing.T) {
+	u := &ui{version: "test"}
+	o := u.shellOptions(Options{})
+
+	require.ElementsMatch(t,
+		[]shell.NavMode{shell.NavLabels, shell.NavIcons, shell.NavHidden}, o.NavModes)
+	require.ElementsMatch(t,
+		[]shell.NavPlacement{shell.NavLeft, shell.NavTop}, o.NavPlacements)
+}
+
+// The icons-only shapes are only usable because every section has an icon of
+// its own: in them each icon carries its section's title as a hover tip, and a
+// section without one gets a generic picture to guess at.
+func TestEverySectionHasAnIconForTheIconsOnlyShapes(t *testing.T) {
+	for title, b := range sectionBuilders() {
+		require.NotNil(t, b.icon, "section %q has no icon", title)
+		require.NotNil(t, b.icon(), "section %q resolves to no icon resource", title)
+	}
+}

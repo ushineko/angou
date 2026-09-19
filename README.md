@@ -850,10 +850,13 @@ suite asserts what someone thought to assert; the diff asserts everything else.
 - **Appearance settings live in a file you can read** rather than in Fyne's
   preference store, one section per key. The old values are read once, so a
   window that has been configured opens the way it was left.
-- **The navigation's shape is available**: labels or icons, down the left or
-  along the top, hidden and brought back with Ctrl+B. This program does not
-  offer it yet — a window four programs already ship does not change because
-  the library learned a trick — but it is there when it is wanted.
+- **The navigation's shape is yours now.** Titles with icons, icons alone, or
+  no navigation at all with the content taking the whole window; down the left
+  as before, or along the top. One control in the header offers the lot, and
+  `Ctrl+B` hides the navigation and brings it back. The choice is remembered
+  between runs. The icons-only shapes are usable because every section here has
+  an icon of its own, and in those shapes each icon carries its section's title
+  as a hover tip.
 - **The README's Version line said 0.4.0** while this program was 0.5.0. It is
   checked against the changelog now, in the same way the library checks its
   own.
