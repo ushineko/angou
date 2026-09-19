@@ -203,6 +203,19 @@ func (u *ui) shellOptions(o Options) shell.Options {
 		OnCreate:     u.onCreate,
 		OnStart:      func(*shell.Shell) { u.start(o) },
 		OnInvalidate: u.onInvalidate,
+
+		// The navigation's shape is the user's: titles with icons, icons
+		// alone, or hidden entirely, down the left or along the top. One
+		// stock control in the header offers exactly what is listed here, and
+		// Ctrl+B hides and restores. The choice is stored by the library
+		// under fynedesygn.nav, so it outlives the run.
+		//
+		// Every section here has an icon of its own, which is what makes the
+		// icons-only shapes usable: in them each icon carries its section's
+		// title as a hover tip, and a section with no icon would be a
+		// generic picture to guess at.
+		NavModes:      []shell.NavMode{shell.NavLabels, shell.NavIcons, shell.NavHidden},
+		NavPlacements: []shell.NavPlacement{shell.NavLeft, shell.NavTop},
 	}
 }
 

@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.4.0
+**Version**: 0.5.1
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -829,6 +829,37 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.5.1
+
+- **The design system library is twenty-three releases newer.** `fynedesygn`
+  moves from v0.1.5 to v0.1.28. Nothing in this repository needed changing for
+  it — the window builds, the tests pass and the sections are unaltered — but
+  the fixes it carries are ones this window had:
+  - **A result banner no longer takes every click in the window.** A banner was
+    a popup, a popup is an overlay, and Fyne routes pointer events to the top
+    overlay instead of to the content, so for the six to twelve seconds a
+    banner was up the first click anywhere went to dismissing it rather than to
+    the button it was aimed at. The same bug applied to hover tips.
+  - **A banner is legible over a busy section.** The status tint is translucent
+    so text stays readable over it, which left a message unreadable against
+    whatever was underneath.
+  - **A refused operation says what is holding the window**, rather than
+    "something is already running", and offers Cancel when that operation has
+    one.
+- **Appearance settings live in a file you can read** rather than in Fyne's
+  preference store, one section per key. The old values are read once, so a
+  window that has been configured opens the way it was left.
+- **The navigation's shape is yours now.** Titles with icons, icons alone, or
+  no navigation at all with the content taking the whole window; down the left
+  as before, or along the top. One control in the header offers the lot, and
+  `Ctrl+B` hides the navigation and brings it back. The choice is remembered
+  between runs. The icons-only shapes are usable because every section here has
+  an icon of its own, and in those shapes each icon carries its section's title
+  as a hover tip.
+- **The README's Version line said 0.4.0** while this program was 0.5.0. It is
+  checked against the changelog now, in the same way the library checks its
+  own.
 
 ### 0.5.0
 
