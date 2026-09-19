@@ -313,6 +313,19 @@ screenshots that quietly go stale.
 4. Validation report written to `validation-reports/` (the `milestones-only` setting
    above means release commits require one).
 5. Commit, then tag.
+6. **Publish a GitHub Release** for the tag, titled `vX.Y.Z`, whose notes are that
+   version's changelog entry verbatim. A bare tag is invisible: it is not in the
+   repository's Releases feed, nobody can watch it, and anyone deciding whether to
+   upgrade has to read a diff.
+
+   ```bash
+   gh release create vX.Y.Z --title vX.Y.Z --notes-file <the entry>
+   ```
+
+**Step 2 is the one that gets missed.** `VERSION` said 0.5.0 while `README.md` still
+said 0.4.0, because the two live in different files and only one of them is read by
+anything. Before tagging, check them against each other and against the newest
+changelog heading -- all three are the same string or the release is wrong.
 
 ### Tagging
 
