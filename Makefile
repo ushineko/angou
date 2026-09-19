@@ -18,6 +18,16 @@ COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 RELEASE_KEY?=
 LDFLAGS=-w -s -X $(MODULE)/internal/buildinfo.Version=$(VERSION) -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT) -X $(MODULE)/internal/release.SigningKeyFingerprint=$(RELEASE_KEY)
 
+# migrated_fynedo tells Fyne this front end has been through the fyne.Do
+# migration, so it stops asking which goroutine it is on. Without it, Fyne
+# answers that question with runtime.Stack -- a full traceback -- on every
+# Canvas.Refresh. Profiled on a sibling program during a window drag: 52% of the
+# process's CPU was printing tracebacks. Every UI mutation off the main
+# goroutine here goes through fyne.Do, which is what the tag asserts.
+# See fynedesygn docs/fyne-quirks.md, quirk 31.
+FYNE_TAGS?=migrated_fynedo
+
+
 LINT_NAME?=golangci-lint
 LINT_VERSION?=v2.12.2
 LINT_PROGRAM=$(LINT_NAME)-$(LINT_VERSION)
@@ -117,7 +127,7 @@ build-static: ## Build the bootstrap CLI (CGO-free on Linux; Keychain-linked on 
 
 .PHONY: build-gui
 build-gui: ## Build the desktop navigator (requires CGO)
-	CGO_ENABLED=1 go build -ldflags='$(LDFLAGS)' -trimpath -o angou-gui ./cmd/angou-gui
+	CGO_ENABLED=1 go build -tags $(FYNE_TAGS) -ldflags='$(LDFLAGS)' -trimpath -o angou-gui ./cmd/angou-gui
 
 .PHONY: build-app
 build-app: ## Assemble the macOS app bundle around the GUI (spec 003 R5)
