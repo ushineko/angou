@@ -25,16 +25,24 @@ import (
 func gnupgHomeDir(t *testing.T) string {
 	t.Helper()
 	var dir string
-	if runtime.GOOS == "darwin" {
-		d, err := os.MkdirTemp("/tmp", "ag-gpg-")
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		// Windows has the same limit through Git for Windows' MSYS gpg, whose
+		// agent socket is an emulated unix socket, and t.TempDir's names there
+		// are long enough to overrun it. The plain temp directory is not.
+		base := "/tmp"
+		if runtime.GOOS == "windows" {
+			base = ""
+		}
+		d, err := os.MkdirTemp(base, "ag-gpg-")
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 		dir = d
-	} else {
+	default:
 		dir = t.TempDir()
 	}
 	require.NoError(t, os.Chmod(dir, 0o700))
-	return dir
+	return gpgHomePath(dir)
 }
 
 // TestGPGDecryptsABlobBody covers R1.5, which is a recovery guarantee rather

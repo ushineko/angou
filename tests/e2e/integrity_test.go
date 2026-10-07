@@ -344,7 +344,7 @@ func TestAbsolutePathOutsideHomeKeepsItsStructure(t *testing.T) {
 
 	// The leading separator is removed and nothing else, so the path still
 	// distinguishes this file from any other.
-	expected := strings.TrimPrefix(filepath.ToSlash(src), "/")
+	expected := logicalOf(src)
 	require.Contains(t, e.mustRun("ls").stdout, expected)
 	require.Equal(t, "FIELD=value\n", e.mustRun("dec", expected).stdout)
 }

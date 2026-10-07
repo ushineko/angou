@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
+	"github.com/ushineko/angou/internal/fsx"
 	"github.com/ushineko/angou/internal/release"
 	"github.com/ushineko/angou/internal/store"
 )
@@ -100,7 +100,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(dst), err)
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, mode.Perm())
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|fsx.NoFollow, mode.Perm())
 	if err != nil {
 		return fmt.Errorf("create %s: %w", dst, err)
 	}

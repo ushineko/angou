@@ -279,7 +279,7 @@ func (s *Session) EncryptFile(src, as string, enc container.Encoding) (EncryptRe
 	}
 
 	id, err := s.st.PutWithOrigin(normalized, content,
-		uint32(fi.Mode().Perm()), fi.ModTime().Unix(), MIMEFor(src), origin, enc)
+		recordedMode(fi), fi.ModTime().Unix(), MIMEFor(src), origin, enc)
 	if err != nil {
 		return EncryptResult{}, err
 	}
@@ -439,8 +439,3 @@ func (s *Session) PruneOrphans() (removed, misnamed []string, err error) {
 func (s *Session) RaiseVersionFloor(version string, newer func(a, b string) int) (bool, error) {
 	return s.st.RaiseVersionFloor(version, newer)
 }
-
-// SetBootstrapSHA256 records the digest of the bootstrap script kept beside the
-// store, so later drift can be detected. This is drift detection after the
-// fact, never a guarantee about the first run.
-func (s *Session) SetBootstrapSHA256(d string) error { return s.st.SetBootstrapSHA256(d) }

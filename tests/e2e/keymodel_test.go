@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -124,9 +125,15 @@ func TestFailedInitShowsNoPassphrase(t *testing.T) {
 	// An unwritable parent stands in for the ways store creation fails in the
 	// field — a full disk, a read-only mount, a directory the user cannot write.
 	locked := filepath.Join(e.work, "locked")
-	mkdirAll(t, locked)
-	require.NoError(t, os.Chmod(locked, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	if runtime.GOOS == "windows" {
+		// A read-only attribute on a Windows directory does not stop files being
+		// created in it, so the parent is made a regular file instead.
+		require.NoError(t, os.WriteFile(locked, nil, 0o600))
+	} else {
+		mkdirAll(t, locked)
+		require.NoError(t, os.Chmod(locked, 0o500))
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	}
 
 	target := filepath.Join(locked, "store")
 	r := e.run("init", "--generate", "--store", target)

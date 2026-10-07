@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"testing"
@@ -182,8 +181,7 @@ func (e *env) startAndKill(t *testing.T, d time.Duration, args ...string) int {
 	}()
 	defer func() { _ = r.Close() }()
 
-	cmd := exec.Command(e.bin, append([]string{"--passphrase-fd", "3"}, args...)...)
-	cmd.ExtraFiles = []*os.File{r}
+	cmd := passphraseCommand(e.bin, r, args...)
 	cmd.Dir = e.work
 	cmd.Env = e.childEnv()
 	require.NoError(t, cmd.Start())

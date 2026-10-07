@@ -70,7 +70,7 @@ func TestEncAllFindsCredentialsAndSkipsTheRest(t *testing.T) {
 	// The originals really are untouched, including their permissions.
 	info, err := os.Stat(filepath.Join(e.home, ".ssh", "id_ed25519"))
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	requirePerm(t, info, 0o600)
 	require.Equal(t, "PRIVATE KEY MATERIAL\n",
 		string(readFile(t, filepath.Join(e.home, ".ssh", "id_ed25519"))))
 }
@@ -178,8 +178,7 @@ func TestDecRestoresToTheRecordedLocation(t *testing.T) {
 	require.Equal(t, "PRIVATE\n", string(readFile(t, origin)))
 	info, err := os.Stat(origin)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
-		"a restored private key must come back with its own permissions")
+	requirePerm(t, info, 0o600, "a restored private key must come back with its own permissions")
 }
 
 // TestRestoreWillNotReplaceWithoutBeingTold covers the guard. With nothing to
@@ -253,7 +252,7 @@ func TestDecOutFlagStillWins(t *testing.T) {
 	e.mustRun("enc", src)
 
 	dest := filepath.Join(e.work, "elsewhere.env")
-	e.mustRun("dec", "--out", dest, strings.TrimPrefix(filepath.ToSlash(src), "/"))
+	e.mustRun("dec", "--out", dest, logicalOf(src))
 	require.Equal(t, "FIELD=value\n", string(readFile(t, dest)))
 }
 

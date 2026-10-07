@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -165,9 +166,29 @@ func assertHomeIsDisposableFor(t fataler, home string) {
 		t.Fatalf("cannot resolve the test home directory %q: %v", home, err)
 	}
 	if homeAbs == realAbs || strings.HasPrefix(homeAbs, realAbs+string(os.PathSeparator)) {
+		if underScratchTemp(homeAbs, realAbs) {
+			return
+		}
 		t.Fatalf("refusing to run: the test HOME %q is inside the real home directory %q. "+
 			"The suite would operate on your own store, keyring, and wallet.", homeAbs, realAbs)
 	}
+}
+
+// underScratchTemp reports whether home lies in the system temporary directory
+// and that directory is not the real home itself.
+//
+// On Windows the temporary directory is %LOCALAPPDATA%\Temp, inside the user
+// profile, so every t.TempDir() is "inside the real home" by path alone. What
+// the guard protects is the developer's store, local key, and config, none of
+// which live under the temporary directory; childEnv points USERPROFILE and
+// APPDATA into the sandbox so the child cannot resolve the real ones. A home
+// that is the profile itself, or anywhere else in it, is still refused.
+func underScratchTemp(homeAbs, realAbs string) bool {
+	tmp, err := filepath.Abs(os.TempDir())
+	if err != nil || tmp == realAbs {
+		return false
+	}
+	return strings.HasPrefix(homeAbs, tmp+string(os.PathSeparator))
 }
 
 // freshPassphrase draws a recovery passphrase from crypto/rand for this run
@@ -219,8 +240,7 @@ func (e *env) runWithLines(lines []string, args ...string) result {
 	}()
 	defer func() { _ = r.Close() }()
 
-	cmd := exec.Command(e.bin, append([]string{"--passphrase-fd", "3"}, args...)...)
-	cmd.ExtraFiles = []*os.File{r} // becomes fd 3 in the child
+	cmd := passphraseCommand(e.bin, r, args...)
 	cmd.Dir = e.work
 	cmd.Env = e.childEnv()
 
@@ -264,12 +284,27 @@ func (e *env) childEnv() []string {
 	if e.noStoreEnv {
 		delete(xdg, "ANGOU_STORE")
 	}
+	if runtime.GOOS == "windows" {
+		// os.UserHomeDir reads USERPROFILE on Windows, not HOME, so redirecting
+		// HOME alone would leave the child resolving the developer's real
+		// profile. The rest are what Windows programs expect to find; TEMP is
+		// pointed into the sandbox so nothing the child writes there outlives it.
+		xdg["USERPROFILE"] = e.home
+		xdg["APPDATA"] = filepath.Join(e.home, "AppData", "Roaming")
+		xdg["LOCALAPPDATA"] = filepath.Join(e.home, "AppData", "Local")
+		xdg["TEMP"] = filepath.Join(base, "tmp")
+		xdg["TMP"] = xdg["TEMP"]
+	}
 	for _, dir := range xdg {
 		if strings.HasPrefix(dir, base) {
 			mkdirAll(e.t, dir)
 		}
 	}
 	out := []string{"PATH=" + os.Getenv("PATH")}
+	if root := os.Getenv("SystemRoot"); root != "" {
+		// Windows system DLLs resolve against it; it names no user state.
+		out = append(out, "SystemRoot="+root)
+	}
 	// The session bus address is pinned in both directions, never left unset.
 	// Unsetting it does not mean "no bus": the D-Bus client library falls back
 	// to autolaunch and finds the developer's real session, and with it their

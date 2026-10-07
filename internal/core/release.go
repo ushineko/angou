@@ -187,16 +187,16 @@ func StashRelease(s *Session, dist, signingKeyPath string, keep int, secrets Sec
 	}
 	// Write the installer alongside the binaries it installs, with this key's
 	// fingerprint baked in, then record its digest so drift is detectable.
-	if err := writeBootstrapScript(s.Root(), signer.Fingerprint()); err != nil {
+	if err := writeBootstrapScripts(s.Root(), signer.Fingerprint()); err != nil {
 		return err
 	}
 	// Sign the installer with the same offline key. That is what lets the
 	// installer check itself without a passphrase, and it means altering it
 	// requires the key rather than merely write access to the store.
-	if err := signBootstrapScript(s.Root(), signer); err != nil {
+	if err := signBootstrapScripts(s.Root(), signer); err != nil {
 		return err
 	}
-	if err := recordBootstrapScript(s); err != nil {
+	if err := recordBootstrapScripts(s); err != nil {
 		return err
 	}
 
@@ -353,36 +353,4 @@ func buildFlagsFor(kind release.Kind) string {
 		return "-ldflags='-w -s' -trimpath CGO_ENABLED=1"
 	}
 	return "-ldflags='-w -s' -trimpath CGO_ENABLED=0"
-}
-
-// signBootstrapScript writes a detached signature beside the installer.
-func signBootstrapScript(root string, signer *pgpcrypto.Identity) error {
-	path := filepath.Join(root, BootstrapScriptName)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", BootstrapScriptName, err)
-	}
-	signature, err := signer.SignDetached(raw)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(path+release.SignatureSuffix, signature, 0o644); err != nil { //nolint:gosec // a signature is not secret
-		return fmt.Errorf("write %s: %w", BootstrapScriptName+release.SignatureSuffix, err)
-	}
-	return nil
-}
-
-// recordBootstrapScript stores the digest of the script at the store root, if
-// one is present (R5.8).
-func recordBootstrapScript(s *Session) error {
-	path := filepath.Join(s.Root(), BootstrapScriptName)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read %s: %w", BootstrapScriptName, err)
-	}
-	sum := sha256.Sum256(raw)
-	return s.SetBootstrapSHA256(hex.EncodeToString(sum[:]))
 }

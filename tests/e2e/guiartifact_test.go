@@ -36,14 +36,19 @@ func releasedStoreWithGUI(t *testing.T) *env {
 
 	dist := filepath.Join(e.work, "dist")
 	mkdirAll(t, dist)
-	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
-	writeFakeBinary(t, filepath.Join(dist, "angou-darwin-arm64"))
+	for _, platform := range stockPlatforms() {
+		writeFakeBinary(t, filepath.Join(dist, "angou-"+platform))
+	}
 	// The GUI cannot be cross-compiled, so a real release carries it for one
 	// platform while the CLI covers every platform. That asymmetry is the case
 	// worth testing, not a matching pair.
 	// Distinguishable content, so a test can tell which artifact was installed
 	// rather than only that something was.
 	writeMarkedBinary(t, filepath.Join(dist, "angou-gui-linux-amd64"), guiMarker)
+	if runtime.GOOS == "windows" {
+		// The Windows installer's GUI path needs a Windows GUI to find.
+		writeMarkedBinary(t, filepath.Join(dist, "angou-gui-"+hostPlatform()), guiMarker)
+	}
 
 	e.mustRun("release", "--dist", dist, "--signing-key", key)
 	return e
@@ -182,6 +187,14 @@ func TestBareMachineAlsoInstallsTheGUIWhenPresent(t *testing.T) {
 	}
 
 	home := filepath.Join(e.work, "baremachine")
+	if runtime.GOOS == "windows" {
+		gui := filepath.Join(home, "bin", "angou-gui.exe")
+		require.FileExists(t, gui, "the GUI should be installed when the store carries one")
+		require.Contains(t, string(readFile(t, gui)), guiMarker)
+		require.FileExists(t, filepath.Join(home, "AppData", "Roaming", "Microsoft", "Windows",
+			"Start Menu", "Programs", "angou.lnk"), "the GUI should get a Start menu entry")
+		return
+	}
 	gui := filepath.Join(home, "bin", "angou-gui")
 	require.FileExists(t, gui, "the GUI should be installed when the store carries one")
 	require.Contains(t, string(readFile(t, gui)), guiMarker)
@@ -214,7 +227,7 @@ func TestBareMachineWithoutAGUISaysSoAndCarriesOn(t *testing.T) {
 	require.FileExists(t, e.installedBinary(), "the CLI must install regardless")
 	require.Contains(t, r.stderr+r.stdout, "carries no desktop GUI",
 		"it should say why there is no GUI rather than staying silent")
-	require.NoFileExists(t, filepath.Join(e.work, "baremachine", "bin", "angou-gui"))
+	require.NoFileExists(t, filepath.Join(e.work, "baremachine", "bin", exeName("angou-gui")))
 }
 
 // TestReleaseRefusesAStaleBuild is the guard behind the mislabelling bug.

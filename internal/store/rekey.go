@@ -59,9 +59,14 @@ func (s *Store) RekeyIdentity(recovery []byte) (*RekeyResult, error) {
 	}
 
 	staged := &Store{
-		root:         filepath.Join(s.root, stagingDir),
-		identity:     newIdentity,
-		meta:         Meta{NameKey: newNameKey, BootstrapSHA256: s.meta.BootstrapSHA256, VersionFloor: s.meta.VersionFloor},
+		root:     filepath.Join(s.root, stagingDir),
+		identity: newIdentity,
+		meta: Meta{
+			NameKey:            newNameKey,
+			BootstrapSHA256:    s.meta.BootstrapSHA256,
+			BootstrapPS1SHA256: s.meta.BootstrapPS1SHA256,
+			VersionFloor:       s.meta.VersionFloor,
+		},
 		index:        Index{Entries: map[string]IndexEntry{}},
 		IndexTrusted: true,
 	}

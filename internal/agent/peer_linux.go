@@ -58,3 +58,7 @@ func LockMemory() error {
 }
 
 func setUmask(mask int) int { return unix.Umask(mask) }
+
+// Supported reports that the agent can run here: this platform can identify a
+// connecting peer, which is what the agent requires before serving one.
+func Supported() error { return nil }

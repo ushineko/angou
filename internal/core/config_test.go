@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,5 +59,8 @@ func TestRememberStoreWritesAPrivateFile(t *testing.T) {
 
 	fi, err := os.Stat(filepath.Join(dir, "angou", "config.json"))
 	require.NoError(t, err)
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix mode bits; the file inherits the profile directory's ACL")
+	}
 	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
 }

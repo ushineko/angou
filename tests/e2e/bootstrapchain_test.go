@@ -32,11 +32,32 @@ func releasedStore(t *testing.T) (*env, string) {
 	// Two platforms, so the "unsupported platform" path has something to list.
 	dist := filepath.Join(e.work, "dist")
 	mkdirAll(t, dist)
-	writeFakeBinary(t, filepath.Join(dist, "angou-linux-amd64"))
-	writeFakeBinary(t, filepath.Join(dist, "angou-darwin-arm64"))
+	for _, platform := range stockPlatforms() {
+		writeFakeBinary(t, filepath.Join(dist, "angou-"+platform))
+	}
 
 	e.mustRun("release", "--dist", dist, "--signing-key", key)
 	return e, fingerprint
+}
+
+// stockPlatforms are the CLI platforms a released fixture store carries: the
+// two CI hosts, plus this machine when it is neither, so the installer always
+// has a binary for the host it runs on.
+func stockPlatforms() []string {
+	platforms := []string{"linux-amd64", "darwin-arm64"}
+	if host := hostPlatform(); host != platforms[0] && host != platforms[1] {
+		platforms = append(platforms, host)
+	}
+	return platforms
+}
+
+// hostInstallerScript is the installer this machine runs: bootstrap.ps1 on
+// Windows, bootstrap.sh everywhere else.
+func hostInstallerScript() string {
+	if runtime.GOOS == "windows" {
+		return "bootstrap.ps1"
+	}
+	return "bootstrap.sh"
 }
 
 // hostPlatform is the GOOS-GOARCH bootstrap.sh selects on the machine running the
@@ -87,6 +108,9 @@ func (e *env) runInstaller(t *testing.T, extraPath string) result {
 	t.Helper()
 	home := filepath.Join(e.work, "baremachine")
 	mkdirAll(t, home)
+	if runtime.GOOS == "windows" {
+		return e.runPS1Installer(t, home, extraPath)
+	}
 
 	path := "/usr/bin:/bin"
 	if extraPath != "" {
@@ -122,8 +146,64 @@ func (e *env) runInstaller(t *testing.T, extraPath string) result {
 	return result{stdout: stdout.String(), stderr: stderr.String(), code: code}
 }
 
+// runPS1Installer drives bootstrap.ps1 the way a bare Windows machine would:
+// the stock Windows PowerShell, a throwaway profile, and a PATH holding the
+// system directories and gpg but nothing of angou's.
+//
+// ProgramFiles is left out of the environment on purpose. The installer looks
+// for Gpg4win and Git for Windows under it, and the missing-gpg test needs a
+// machine where that search finds nothing.
+func (e *env) runPS1Installer(t *testing.T, home, extraPath string) result {
+	t.Helper()
+	root := os.Getenv("SystemRoot")
+	require.NotEmpty(t, root, "SystemRoot is not set")
+	system := filepath.Join(root, "System32")
+	posh := filepath.Join(system, "WindowsPowerShell", "v1.0")
+
+	path := system + ";" + posh
+	if extraPath != "" {
+		path = extraPath + ";" + path
+	} else if gpgPath, err := exec.LookPath("gpg"); err == nil {
+		path = filepath.Dir(gpgPath) + ";" + path
+	}
+	tmp := filepath.Join(home, "AppData", "Local", "Temp")
+	mkdirAll(t, tmp)
+
+	cmd := exec.Command(filepath.Join(posh, "powershell.exe"),
+		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-File", e.storePath("bootstrap.ps1"))
+	cmd.Env = []string{
+		"PATH=" + path,
+		"SystemRoot=" + root,
+		"windir=" + root,
+		// Without PATHEXT, PowerShell's Get-Command finds no applications on PATH
+		// at all. Every Windows session has it.
+		"PATHEXT=.COM;.EXE;.BAT;.CMD",
+		"PROCESSOR_ARCHITECTURE=" + os.Getenv("PROCESSOR_ARCHITECTURE"),
+		"USERPROFILE=" + home,
+		"APPDATA=" + filepath.Join(home, "AppData", "Roaming"),
+		"LOCALAPPDATA=" + filepath.Join(home, "AppData", "Local"),
+		"TEMP=" + tmp,
+		"TMP=" + tmp,
+		"ANGOU_INSTALL_DIR=" + filepath.Join(home, "bin"),
+	}
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if ok := asExitError(err, &exitErr); !ok {
+			t.Fatalf("running the installer: %v\n%s", err, stderr.String())
+		}
+		code = exitErr.ExitCode()
+	}
+	return result{stdout: stdout.String(), stderr: stderr.String(), code: code}
+}
+
 func (e *env) installedBinary() string {
-	return filepath.Join(e.work, "baremachine", "bin", "angou")
+	return filepath.Join(e.work, "baremachine", "bin", exeName("angou"))
 }
 
 // TestReleaseStashesSignedBinariesWithMetadata covers R5.3: the record has to
@@ -154,6 +234,17 @@ func TestReleaseStashesSignedBinariesWithMetadata(t *testing.T) {
 	require.FileExists(t, e.storePath("bootstrap.sh"))
 	require.FileExists(t, e.storePath("bootstrap.sh.sig"))
 	require.Contains(t, string(readFile(t, e.storePath("bootstrap.sh"))), fingerprint)
+
+	// So does the Windows installer, signed and pinned the same way.
+	require.FileExists(t, e.storePath("bootstrap.ps1"))
+	require.FileExists(t, e.storePath("bootstrap.ps1.sig"))
+	ps1 := readFile(t, e.storePath("bootstrap.ps1"))
+	require.Contains(t, string(ps1), fingerprint)
+	for i, b := range ps1 {
+		// Windows PowerShell 5.1 reads a script with no byte-order mark in the
+		// ANSI code page, so anything outside ASCII would be misread there.
+		require.Less(t, b, byte(0x80), "bootstrap.ps1 must be ASCII; byte %d is 0x%02x", i, b)
+	}
 }
 
 // TestBareMachineInstallsFromTheStore is the R5.6 path: no angou, no keyring, no
@@ -170,9 +261,16 @@ func TestBareMachineInstallsFromTheStore(t *testing.T) {
 	// encrypted, only signed.
 	require.NotContains(t, strings.ToLower(r.stderr), "passphrase:")
 
-	info, err := os.Stat(e.installedBinary())
-	require.NoError(t, err)
-	require.NotZero(t, info.Mode()&0o111, "the installed binary must be executable")
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(e.installedBinary())
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&0o111, "the installed binary must be executable")
+	}
+
+	// What it installed is the real thing: it runs and reports its version.
+	out, err := exec.Command(e.installedBinary(), "--version").Output()
+	require.NoError(t, err, "the installed binary must run")
+	require.Contains(t, string(out), "angou")
 }
 
 // TestInstallerRefusesATamperedBinary covers R5.4.
@@ -203,7 +301,7 @@ func TestInstallerRefusesAnotherKeysSignature(t *testing.T) {
 	attacker, attackerFingerprint := releasedStore(t)
 	require.NotEqual(t, fingerprint, attackerFingerprint)
 
-	name := e.binaryName(t, "linux-amd64")
+	name := e.binaryName(t, hostPlatform())
 	copyOver(t, attacker.storePath("bootstrap", name), e.storePath("bootstrap", name))
 	copyOver(t, attacker.storePath("bootstrap", name+".sig"), e.storePath("bootstrap", name+".sig"))
 	copyOver(t, attacker.storePath("bootstrap", "release-key.asc"), e.storePath("bootstrap", "release-key.asc"))
@@ -224,6 +322,11 @@ func TestInstallerReportsMissingGPG(t *testing.T) {
 	stub := filepath.Join(e.work, "nogpg")
 	mkdirAll(t, stub)
 	for _, tool := range []string{"uname", "ls", "sed", "sort", "tail", "grep", "mktemp", "rm", "chmod", "mkdir", "install", "basename", "dirname", "printf", "tr", "cat"} {
+		// On Windows the stub stays empty: PowerShell brings its own tools, and
+		// the installer's PATH there is the system directories plus this.
+		if runtime.GOOS == "windows" {
+			break
+		}
 		if p, err := exec.LookPath(tool); err == nil {
 			require.NoError(t, os.Symlink(p, filepath.Join(stub, tool)))
 		}
@@ -232,7 +335,7 @@ func TestInstallerReportsMissingGPG(t *testing.T) {
 	r := e.runInstaller(t, stub)
 	require.NotZero(t, r.code, "the installer must not proceed without gpg")
 	require.Contains(t, r.stderr, "gpg is not installed")
-	require.Regexp(t, `pacman -S gnupg|apt install gnupg|dnf install gnupg2|brew install gnupg|install gnupg with`,
+	require.Regexp(t, `pacman -S gnupg|apt install gnupg|dnf install gnupg2|brew install gnupg|winget install GnuPG.Gpg4win|install gnupg with`,
 		r.stderr, "the message should name a command the user can actually run")
 	require.NoFileExists(t, e.installedBinary())
 }
@@ -259,7 +362,7 @@ func TestInstallerListsAvailablePlatforms(t *testing.T) {
 func TestInstallerSelfCheckReportsDriftHonestly(t *testing.T) {
 	e, _ := releasedStore(t)
 
-	script := e.storePath("bootstrap.sh")
+	script := e.storePath(hostInstallerScript())
 	require.NoError(t, os.WriteFile(script,
 		append(readFile(t, script), []byte("\n# a local edit\n")...), 0o755)) //nolint:gosec // it must stay executable
 
@@ -285,6 +388,27 @@ func TestVerifyBootstrapDetectsASingleByte(t *testing.T) {
 	r := e.run("verify-bootstrap")
 	require.NotZero(t, r.code, "a single altered byte must be reported")
 	require.Contains(t, r.stderr, "MISMATCH")
+}
+
+// TestVerifyBootstrapCoversTheWindowsInstaller covers bootstrap.ps1 under the
+// same drift detection as bootstrap.sh: its digest is recorded at release, and
+// a change to it is reported by verify-bootstrap and on unlock.
+func TestVerifyBootstrapCoversTheWindowsInstaller(t *testing.T) {
+	e, _ := releasedStore(t)
+
+	ok := e.mustRun("verify-bootstrap").stdout
+	require.Contains(t, ok, "bootstrap.ps1 matches the digest")
+	require.Contains(t, ok, "bootstrap.sh matches the digest")
+
+	script := e.storePath("bootstrap.ps1")
+	require.NoError(t, os.WriteFile(script, append(readFile(t, script), []byte("\n# drift\n")...), 0o755)) //nolint:gosec // it must stay executable
+
+	r := e.run("verify-bootstrap")
+	require.NotZero(t, r.code)
+	require.Contains(t, r.stderr, "MISMATCH: bootstrap.ps1")
+	require.NotContains(t, r.stderr, "MISMATCH: bootstrap.sh", "only the changed installer is reported")
+
+	require.Contains(t, e.mustRun("ls").stderr, "bootstrap.ps1 does not match")
 }
 
 // TestUnlockWarnsOnBootstrapDrift covers R5.8.1: the check also runs
@@ -588,7 +712,7 @@ func exportGPGSigningKey(t *testing.T, e *env, passphrase string) string {
 // buildPinned compiles the tool with a release fingerprint baked in.
 func buildPinned(t *testing.T, e *env, fingerprint string) string {
 	t.Helper()
-	out := filepath.Join(e.work, "angou-pinned")
+	out := filepath.Join(e.work, exeName("angou-pinned"))
 	cmd := exec.Command("go", "build",
 		"-ldflags", "-X github.com/ushineko/angou/internal/release.SigningKeyFingerprint="+fingerprint,
 		"-trimpath", "-o", out, "./cmd/angou")

@@ -203,7 +203,7 @@ func describeRawEntry(de os.DirEntry) (kind, colour string) {
 		return "store metadata, holds the naming key", cYell
 	case name == store.IndexName:
 		return "listing cache, rebuildable", cYell
-	case name == BootstrapScriptName:
+	case core.IsInstallerName(name):
 		return "plaintext installer", cRed
 	case strings.HasSuffix(name, ".sig"):
 		return "signature", cDim

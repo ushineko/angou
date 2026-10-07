@@ -3,8 +3,10 @@
 package e2e
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -33,13 +35,16 @@ func TestInitRemembersTheStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init recorded no config at %s: %v", cfg, err)
 	}
-	if !strings.Contains(string(b), e.store) {
+	var recorded struct {
+		StoreDir string `json:"store_dir"`
+	}
+	if err := json.Unmarshal(b, &recorded); err != nil || recorded.StoreDir != e.store {
 		t.Fatalf("the config does not name the store:\n%s", b)
 	}
 	if strings.Contains(string(b), e.recovery) || strings.Contains(string(b), e.fingerprint) {
 		t.Fatalf("the config holds more than a path:\n%s", b)
 	}
-	if fi, err := os.Stat(cfg); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(cfg); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Fatalf("config mode is %v (err %v), want 0600", fi.Mode().Perm(), err)
 	}
 }

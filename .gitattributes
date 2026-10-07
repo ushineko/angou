@@ -1,0 +1,6 @@
+# Every text file is LF in the working tree on every platform. Without this a
+# Windows checkout (core.autocrlf=true) embeds a CRLF bootstrap.sh into the
+# binary, which sh cannot run and whose digest no longer matches its signature.
+* text=auto eol=lf
+*.png binary
+*.icns binary

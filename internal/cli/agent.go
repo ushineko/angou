@@ -56,6 +56,9 @@ func newAgentStartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := core.AgentSupported(); err != nil {
+				return err
+			}
 			dir, err := storeDir()
 			if err != nil {
 				return err

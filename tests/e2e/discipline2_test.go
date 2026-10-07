@@ -68,6 +68,10 @@ func TestStaticBinaryHasNoDynamicDependencies(t *testing.T) {
 	bin := os.Getenv(BinEnv)
 	require.NotEmpty(t, bin)
 
+	if runtime.GOOS == "windows" {
+		requireOnlySystemImports(t, bin)
+		return
+	}
 	if _, err := exec.LookPath("ldd"); err == nil {
 		out, _ := exec.Command("ldd", bin).CombinedOutput()
 		require.Contains(t, strings.ToLower(string(out)), "not a dynamic executable",
@@ -178,8 +182,7 @@ func runBinaryAllowFailure(t *testing.T, e *env, bin string, lines []string, arg
 	}()
 	defer func() { _ = r.Close() }()
 
-	cmd := exec.Command(bin, append([]string{"--passphrase-fd", "3"}, args...)...)
-	cmd.ExtraFiles = []*os.File{r}
+	cmd := passphraseCommand(bin, r, args...)
 	cmd.Dir = e.work
 	cmd.Env = e.childEnv()
 	var stdout, stderr strings.Builder

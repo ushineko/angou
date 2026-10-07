@@ -7,6 +7,16 @@ set -euo pipefail
 
 OS="$(uname -s)"
 
+# install.sh does not install on Windows, so there is nothing here to remove.
+# bootstrap.ps1 installs to %LOCALAPPDATA%\Programsngou plus a Start menu entry.
+case "$OS" in
+    MINGW*|MSYS*|CYGWIN*)
+        echo "install.sh does not install on Windows; nothing to remove." >&2
+        echo "bootstrap.ps1 installs to %LOCALAPPDATA%\Programs\angou and adds a Start" >&2
+        echo "menu entry named angou; delete both by hand to remove it." >&2
+        exit 1 ;;
+esac
+
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
 MIME_DIR="${HOME}/.local/share/mime/packages"

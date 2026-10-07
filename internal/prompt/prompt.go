@@ -74,7 +74,14 @@ var fdReaders = map[int]*bufio.Reader{}
 func readFD(fd int) ([]byte, error) {
 	reader, ok := fdReaders[fd]
 	if !ok {
-		f := os.NewFile(uintptr(fd), fmt.Sprintf("passphrase-fd-%d", fd))
+		// Descriptor 0 is standard input everywhere but Windows, where the value
+		// names a handle and standard input's handle is not 0. Mapping it keeps
+		// `--passphrase-fd 0 < file` meaning the same thing on every platform;
+		// any other value is taken as an inherited handle there.
+		f := os.Stdin
+		if fd != 0 {
+			f = os.NewFile(uintptr(fd), fmt.Sprintf("passphrase-fd-%d", fd))
+		}
 		if f == nil {
 			return nil, fmt.Errorf("%w: file descriptor %d is not open", ErrNoInput, fd)
 		}
