@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.6.0
+**Version**: 0.6.1
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -893,6 +893,21 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.6.1
+
+- **Writing to a store in a Dropbox folder no longer fails on Windows while Dropbox is
+  syncing.** angou saves a file by writing a new copy and renaming it over the old one.
+  Windows refuses that rename while another program holds the old file open, and Dropbox
+  holds a file for a moment after it changes, so a write could fail with "Access is
+  denied". Bootstrapping a Windows machine hit it in the self-test. angou now retries the
+  rename for up to two seconds on the errors a held file produces, and reports anything
+  else at once. Linux and macOS are unchanged; a rename there does not care who has the
+  file open.
+- **A failed bootstrap self-test no longer leaves its test file in the store.** The probe
+  it writes was left behind, unlisted and syncing to every machine, when saving the index
+  failed. If you bootstrapped a Windows machine with 0.6.0 and it reported "self-test
+  failed", run `angou rm .angou-selftest` once to remove it.
 
 ### 0.6.0
 
