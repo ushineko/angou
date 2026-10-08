@@ -10,6 +10,7 @@ import (
 
 	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/envelope"
+	"github.com/ushineko/angou/internal/fsx"
 	"github.com/ushineko/angou/internal/keybundle"
 	"github.com/ushineko/angou/internal/pgpcrypto"
 )
@@ -150,7 +151,7 @@ func (s *Store) commitRekey(staged *Store, bundleBytes []byte, oldNames []string
 		if de.Name() == MetaName || de.Name() == IndexName {
 			continue // handled below, with the bundle
 		}
-		if err := os.Rename(from, to); err != nil {
+		if err := fsx.Rename(from, to); err != nil {
 			return fmt.Errorf("commit %s: %w", de.Name(), err)
 		}
 	}
@@ -161,7 +162,7 @@ func (s *Store) commitRekey(staged *Store, bundleBytes []byte, oldNames []string
 	current := filepath.Join(bundleDir, KeyBundleName)
 	superseded := filepath.Join(bundleDir, KeyBundlePrefix+s.identity.Fingerprint()+".json")
 	if _, err := os.Stat(current); err == nil {
-		if err := os.Rename(current, superseded); err != nil {
+		if err := fsx.Rename(current, superseded); err != nil {
 			return fmt.Errorf("retain the superseded key bundle: %w", err)
 		}
 	}
@@ -169,7 +170,7 @@ func (s *Store) commitRekey(staged *Store, bundleBytes []byte, oldNames []string
 		return err
 	}
 	for _, name := range []string{MetaName, IndexName} {
-		if err := os.Rename(filepath.Join(staged.root, name), filepath.Join(s.root, name)); err != nil {
+		if err := fsx.Rename(filepath.Join(staged.root, name), filepath.Join(s.root, name)); err != nil {
 			return fmt.Errorf("commit %s: %w", name, err)
 		}
 	}
@@ -318,7 +319,7 @@ func (s *Store) PruneSupersededBundles(recovery []byte) error {
 		if err := os.Remove(current); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove %s: %w", KeyBundleName, err)
 		}
-		if err := os.Rename(keep, current); err != nil {
+		if err := fsx.Rename(keep, current); err != nil {
 			return fmt.Errorf("promote %s: %w", filepath.Base(keep), err)
 		}
 		keep = current

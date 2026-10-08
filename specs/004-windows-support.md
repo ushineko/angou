@@ -61,6 +61,19 @@ already opens with `O_EXCL`, which refuses any existing leaf, symlink included.
 **R1.3** The Windows CLI is built with `CGO_ENABLED=0`. Its Credential Manager backend
 (R2) calls `advapi32` through `x/sys/windows`' lazy DLL loading and needs no C toolchain.
 
+**R1.4** Every commit-by-rename (`writeFileAtomic`, rekey's swaps, the local key, the
+config) goes through `fsx.Rename`, which on Windows retries for up to two seconds on
+`ERROR_ACCESS_DENIED`, `ERROR_SHARING_VIOLATION` and `ERROR_LOCK_VIOLATION`, and returns
+any other error at once. Windows will not replace a file another process holds open
+without `FILE_SHARE_DELETE`, and a sync client holds a file it has just seen change. Found
+bootstrapping a real Dropbox store: the self-test's index commit was refused with "Access
+is denied". Measured on a Dropbox folder, a replacement right after a write failed seven
+times over 359 ms and then succeeded. Off Windows, `fsx.Rename` is `os.Rename`.
+
+**R1.5** When the bootstrap self-test's `Put` fails, the probe is removed before the error
+is returned. `Put` writes the blob before the index, so a failed index commit otherwise
+leaves an unlisted `.angou-selftest` blob in the store, synced to every machine.
+
 ### R2 — Secret storage on Windows (the Credential Manager backend)
 
 **R2.1** `keyring_windows.go` stores the unlock passphrase as a generic credential
@@ -213,6 +226,8 @@ the user.
 
 - [x] R1.1–R1.3 — `CGO_ENABLED=0 go build ./cmd/angou` succeeds on windows/amd64; linux
       and darwin `go vet` unchanged
+- [x] R1.4–R1.5 — `fsx.Rename` waits out a brief hold and gives up on a long one
+      (`TestRenameWaitsOutABriefHold`, `TestRenameGivesUpOnAHoldThatOutlastsTheTimeout`)
 - [x] R2.1–R2.3 — Credential Manager round-trip, replace, missing entry, remove-absent,
       oversize refusal and `ANGOU_KEYRING=none` unit-tested against the real vault
 - [x] R3.1–R3.2 — `agent start` refuses before asking for a passphrase

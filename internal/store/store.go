@@ -17,6 +17,7 @@ import (
 
 	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/envelope"
+	"github.com/ushineko/angou/internal/fsx"
 	"github.com/ushineko/angou/internal/keybundle"
 	"github.com/ushineko/angou/internal/pgpcrypto"
 )
@@ -553,7 +554,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := fsx.Rename(tmp, path); err != nil {
 		return fmt.Errorf("commit %s: %w", path, err)
 	}
 	return nil

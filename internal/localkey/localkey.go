@@ -27,6 +27,8 @@ import (
 	"path/filepath"
 
 	"golang.org/x/crypto/hkdf"
+
+	"github.com/ushineko/angou/internal/fsx"
 )
 
 // UnlockPassphraseLen is the size of the unlock passphrase (R2.2).
@@ -162,7 +164,7 @@ func WriteStaged(storeDir, fingerprint string, identity, unlock []byte) (string,
 // CommitStaged moves a staged local key into place, replacing any existing one.
 func CommitStaged(staged string) error {
 	final := filepath.Join(filepath.Dir(staged), "identity.local")
-	if err := os.Rename(staged, final); err != nil {
+	if err := fsx.Rename(staged, final); err != nil {
 		return fmt.Errorf("commit local key: %w", err)
 	}
 	return nil

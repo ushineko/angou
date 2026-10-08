@@ -122,6 +122,9 @@ func roundTripSelfTest(s *store.Store) error {
 	}
 	const path = ".angou-selftest"
 	if _, err := s.Put(path, probe, 0o600, 0, "application/octet-stream", container.EncodingArmor); err != nil {
+		// Put writes the blob before the index, so a failed index commit leaves
+		// the probe in the store, unlisted, and syncing to every machine.
+		_ = s.Remove(path)
 		return err
 	}
 	env, err := s.Get(path)
