@@ -291,10 +291,21 @@ if ($guiName) {
     Write-Note "this store carries no desktop GUI for $($platform -replace '-', '/'); the CLI does everything it does"
 }
 
-$onPath = ($env:Path -split ';') | Where-Object { $_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') }
-if (-not $onPath) {
-    Write-Note "warning: $InstallDir is not on your PATH; add it to run angou by name:"
-    Write-Note "    [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';$InstallDir', 'User')"
+# The PATH this process inherited is a snapshot. A directory added to the saved
+# user or machine PATH since this terminal opened is not in it, and saying "not
+# on your PATH" then sends the user to add it a second time.
+function Test-OnPath([string]$PathList) {
+    [bool](($PathList -split ';') | Where-Object { $_ -and ($_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) })
+}
+$saved = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' +
+    [Environment]::GetEnvironmentVariable('Path', 'Machine')
+if (-not (Test-OnPath $env:Path)) {
+    if (Test-OnPath $saved) {
+        Write-Note "$InstallDir is on your PATH from the next terminal you open; this one predates it."
+    } else {
+        Write-Note "warning: $InstallDir is not on your PATH; add it to run angou by name:"
+        Write-Note "    [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';$InstallDir', 'User')"
+    }
 }
 
 # Post-install self-check (R5.8.2).
@@ -327,6 +338,9 @@ if (Test-Path -LiteralPath "$self.sig" -PathType Leaf) {
 }
 
 Write-Note ''
-Write-Note "Next: angou bootstrap --store `"$StoreDir`""
+# This script cannot tell a first install from an upgrade: knowing whether this
+# machine already opens the store means reading the store, which it never does.
+Write-Note "If this machine is new to the store, next: angou bootstrap --store `"$StoreDir`""
 Write-Note 'That asks for your recovery passphrase and sets this machine up to open the store.'
+Write-Note 'If it already opens the store, this was an upgrade and there is nothing more to do.'
 exit 0

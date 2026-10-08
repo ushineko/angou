@@ -342,5 +342,8 @@ else
 fi
 
 note ""
-note "Next: angou bootstrap --store $STORE_DIR"
+# This script cannot tell a first install from an upgrade: knowing whether this
+# machine already opens the store means reading the store, which it never does.
+note "If this machine is new to the store, next: angou bootstrap --store $STORE_DIR"
 note "That asks for your recovery passphrase and sets this machine up to open the store."
+note "If it already opens the store, this was an upgrade and there is nothing more to do."

@@ -2,7 +2,7 @@
 
 **Issue**: #5
 
-## Status: IN PROGRESS
+## Status: COMPLETE
 
 ---
 
@@ -129,6 +129,11 @@ command that adds it, self-check its own signature afterwards with the same "det
 after execution" wording, and point at `angou bootstrap --store`. It never touches the
 network and never asks for a passphrase.
 
+**R4.3.1** Both installers word the closing step as conditional, because neither can tell
+a first install from an upgrade without reading the store. `bootstrap.ps1` also checks the
+saved user and machine PATH, not only the PATH it inherited, and says "from the next
+terminal you open" when only the saved one has the directory.
+
 **R4.4** `bootstrap.ps1` is ASCII. Windows PowerShell 5.1 reads a script without a
 byte-order mark in the ANSI code page.
 
@@ -242,5 +247,7 @@ the user.
 - [x] R7 — full `make e2e` passes on Windows and is recorded in the validation report
 - [x] R8.1 — fynedesygn v0.1.84; GUI builds
 - [x] R9.1–R9.2 — README, changelog, version bump (0.6.0)
-- [ ] A real store, released from Linux with the Windows CLI cross-compiled, bootstraps
-      this Windows machine with no angou installed beforehand
+- [x] A real store, released from Linux with the Windows CLI cross-compiled, bootstraps
+      this Windows machine with no angou installed beforehand. 0.6.0 did, but its
+      self-test failed on the index commit (R1.4) and left a probe behind (R1.5); 0.6.1
+      fixes both and upgraded this machine from the store with `bootstrap.ps1`
