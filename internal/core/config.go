@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/ushineko/angou/internal/fsx"
 )
 
 // The remembered store directory, shared by both front ends.
@@ -101,7 +103,7 @@ func RememberStore(dir string) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	if err := fsx.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

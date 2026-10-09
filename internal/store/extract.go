@@ -5,8 +5,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"syscall"
 	"time"
+
+	"github.com/ushineko/angou/internal/fsx"
 )
 
 // Extract writes an envelope's content beneath destRoot, restoring mode and
@@ -50,7 +51,11 @@ func Extract(destRoot, logicalPath string, content []byte, mode uint32, mtime in
 	perm := os.FileMode(mode).Perm()
 	// O_NOFOLLOW additionally refuses a symlink at the leaf, including one that
 	// stays inside the root: the extracted file must be a regular file.
-	f, err := root.OpenFile(normalized, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, perm)
+	// On Windows fsx.NoFollow is zero and the Lstat below is the only leaf check.
+	if err := fsx.RefuseSymlink(root.Lstat, normalized); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnsafeExtract, err)
+	}
+	f, err := root.OpenFile(normalized, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|fsx.NoFollow, perm)
 	if err != nil {
 		return "", fmt.Errorf("%w: open %s: %w", ErrUnsafeExtract, normalized, err)
 	}

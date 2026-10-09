@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,9 @@ func TestExtractWritesUnderTheRoot(t *testing.T) {
 
 	info, err := os.Stat(written)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix mode bits to restore
+		require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	}
 	require.Equal(t, int64(1756684800), info.ModTime().Unix())
 	require.Equal(t, "FIELD=value\n", string(mustRead(t, written)))
 }

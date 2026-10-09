@@ -11,7 +11,7 @@ with passwords in them.
 *Nothing about your keys or your data lives in this repository. The store stays where you
 put it.*
 
-**Version**: 0.5.1
+**Version**: 0.6.1
 
 > The specs are the design of record, including the alternatives that were rejected and
 > why: [`specs/001`](specs/001-angou-format-keying-and-store.md) for the format, key
@@ -96,10 +96,11 @@ kept offline, and refused if it is older than the newest version you have alread
 installed — so neither a swapped copy nor an old one can be quietly put back. The program
 itself is not encrypted, and does not need to be: it is the same software anybody can
 download, and what protects you is the signature, not secrecy. The one exception is
-`bootstrap.sh`, which is plaintext by necessity, because something has to run before the
-program exists. Its hash is recorded inside the store and published on GitHub, so you can
-check it before running it on your first machine and `angou verify-bootstrap` will catch a
-change from any machine you have already set up.
+the installer, `bootstrap.sh` (and `bootstrap.ps1` for Windows), which is plaintext by
+necessity, because something has to run before the program exists. Its hash is recorded
+inside the store and published on GitHub, so you can check it before running it on your
+first machine and `angou verify-bootstrap` will catch a change from any machine you have
+already set up.
 
 ## Credentials
 
@@ -121,6 +122,13 @@ On Linux angou uses the freedesktop Secret Service, which GNOME, KDE, XFCE and o
 implement, so this should work on most desktops rather than only on KDE.
 `ANGOU_KEYRING=kwallet` pins the older KDE-specific API if you would rather use it. On
 macOS it uses the login Keychain; there is nothing to choose and nothing to install.
+
+On Windows it uses the Credential Manager: a generic credential named
+`angou/unlock-<fingerprint>` in your own vault, kept on this machine rather than roamed
+with a domain profile. Windows protects it with DPAPI under your logon. Any program
+running as you can read it, the same as with the Secret Service or the Keychain. Over an
+ssh session with network logon there is no vault to reach, and angou falls back to asking
+for the recovery password.
 
 This tool can still be used on a system with no keyring, but it will be less friendly to
 use. `ANGOU_KEYRING=none` forces that on any platform, for a machine where you would
@@ -221,6 +229,13 @@ cd /path/to/store
 ./bootstrap.sh
 ```
 
+On Windows the store carries `bootstrap.ps1` beside it, which does the same job under the
+PowerShell that ships with Windows:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\path\to\store\bootstrap.ps1
+```
+
 This will install the included binaries from the publish step, check the environment for
 suitability, and check the binary signatures.
 
@@ -234,31 +249,40 @@ older than one you have already used.
 that would otherwise do it is the thing being installed. On Arch it is already there —
 `pacman` depends on it. Nothing after this point uses it.
 
-As a matter of security best practice, read `bootstrap.sh` before you run it. It is short
-and deliberately so.
+On Windows, `gpg` comes from Gpg4win (`winget install GnuPG.Gpg4win`) or from the copy
+that Git for Windows bundles; the script finds either.
+
+As a matter of security best practice, read `bootstrap.sh` (or `bootstrap.ps1`) before you
+run it. It is short and deliberately so.
 
 ## Requirements
 
-- **Linux** (developed on CachyOS/Arch) or **macOS**.
+- **Linux** (developed on CachyOS/Arch), **macOS**, or **Windows 10/11**.
 - **A keyring** for password caching. Without it you are asked for your recovery password
   rather than having it cached. On Linux this is the Secret Service (KDE, GNOME, and most
-  desktops), on macOS the login Keychain. Nothing to install on either.
+  desktops), on macOS the login Keychain, on Windows the Credential Manager. Nothing to
+  install on any of them.
 - **`gpg`** for the first-run bootstrap only, and not afterwards. On macOS install it with
-  `brew install gnupg`.
+  `brew install gnupg`; on Windows, `winget install GnuPG.Gpg4win`, or use the one Git for
+  Windows already carries.
 - **Go 1.25+** to build from source. Building the GUI on macOS also needs the Xcode
-  command-line tools (`xcode-select --install`).
+  command-line tools (`xcode-select --install`). On Windows it needs a MinGW-w64 `gcc` on
+  `PATH` (MSYS2's `mingw-w64-ucrt-x86_64-gcc` works) and `make`; the CLI needs neither.
+  Run MSYS2's `make` from PowerShell or an MSYS2 shell, not from Git Bash: launched from
+  Git Bash its recipes see an empty environment and `go` cannot find its module cache.
 
 The CLI has no runtime dependencies on Linux — it is a static binary and does not call out
 to `gpg`, `gpg-agent`, or `kwallet-query`. On macOS the CLI links the system
 Security.framework for the Keychain, which every Mac already has; it still runs no
-subprocesses.
+subprocesses. On Windows the CLI is built without CGO and imports only system DLLs; it
+reaches the Credential Manager through `advapi32.dll`.
 
 The GUI is linked against platform-standard graphics libraries (X11 and OpenGL on Linux,
-Cocoa and Metal on macOS) and will only work where those are present.
+Cocoa and Metal on macOS, OpenGL on Windows) and will only work where those are present.
 
 ## Installation
 
-From a store, use `bootstrap.sh` as explained above. From this repository:
+From a store, use `bootstrap.sh` (or `bootstrap.ps1` on Windows) as explained above. From this repository:
 
 ```bash
 git clone git@github.com:ushineko/angou.git
@@ -276,6 +300,17 @@ The macOS app bundle is not code-signed or notarized, so the first time you open
 Finder, Gatekeeper will warn that it is from an unidentified developer; right-click the app
 and choose Open to run it anyway. A build you made yourself on your own machine is not
 subject to this — it is only machines the bundle is copied *to* that see the warning.
+
+`install.sh` does not install on Windows; it says so and stops. Either install from a store
+with `bootstrap.ps1`, which puts `angou.exe` (and `angou-gui.exe`, with a Start menu entry,
+if the store carries one) in `%LOCALAPPDATA%\Programs\angou`, or build from this
+repository and put the result on `PATH` yourself:
+
+```bash
+make build-static build-gui    # angou.exe and angou-gui.exe
+```
+
+Nothing registers the `.angou` file type on Windows.
 
 ## Using it
 
@@ -514,6 +549,11 @@ not keep out anything else running as **you**: while the agent is up, any proces
 your account can ask it for the key. The lifetime is the real protection, which is what
 `--ttl` and `agent stop` are for.
 
+**The agent does not run on Windows.** Before handing over the key it checks which process
+is on the other end of the socket, and Windows' Unix sockets give no way to ask. Rather
+than serve the key unchecked, `angou agent start` refuses there and says why. The
+Credential Manager covers what the agent is for.
+
 ### Setting up a new machine
 
 This is **optional**, and only for the case where a machine has no `angou` and you want
@@ -529,7 +569,8 @@ angou release --dist dist/ --signing-key ~/angou-release.asc
 ```
 
 This puts a binary for each platform into the store, signs each one, and writes
-`bootstrap.sh` beside them. Move the signing key to offline storage afterwards and delete
+`bootstrap.sh` and `bootstrap.ps1` beside them, both signed. `build-all` builds the CLI for
+Linux, macOS and Windows on any host, but only the GUI for the host it runs on. Move the signing key to offline storage afterwards and delete
 it from the machine. Anyone who has it can sign a binary that every future bootstrap will
 accept.
 
@@ -554,6 +595,17 @@ On the new machine, with nothing installed but `gpg`:
 sh /path/to/store/bootstrap.sh
 angou bootstrap --store /path/to/store
 ```
+
+or on Windows:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\store\bootstrap.ps1
+angou bootstrap --store D:\store
+```
+
+`bootstrap.ps1` installs to `%LOCALAPPDATA%\Programs\angou` (`ANGOU_INSTALL_DIR`
+overrides it). It does not change `PATH`; if that directory is not on it, the script prints
+the command that adds it.
 
 The script detects the platform, checks the binary's signature against a fingerprint
 written into the script itself, installs it, and stops. It asks for no passphrase and does
@@ -588,11 +640,14 @@ interrupted rotation, and `angou prune --orphans` removes them. It will not remo
 that decrypts but sits under the wrong name.
 
 ```bash
-angou verify-bootstrap   # has the installer in the store been altered?
+angou verify-bootstrap   # have the installers in the store been altered?
 ```
 
-Run this from a machine you trust to detect tampering with the script your other machines
-will run.
+Run this from a machine you trust to detect tampering with the scripts your other machines
+will run. It checks every installer the store carries, `bootstrap.sh` and `bootstrap.ps1`
+alike. A store written by an older angou has no digest for `bootstrap.ps1`: the check
+fails saying nothing is recorded, not that the script changed, and `--record` records it
+once you have checked the script yourself.
 
 ### Changing what protects the store
 
@@ -649,7 +704,15 @@ keyring or the agent is doing it for you. On Linux angou checks the memory is av
 including any container limit on the process — and reports the shortfall rather than being
 killed part-way through. On macOS that pre-flight check is not run: there is no cheap
 equivalent of the Linux figures, and a desktop Mac is far less likely to be killed
-mid-derivation than a memory-capped Linux container is.
+mid-derivation than a memory-capped Linux container is. Windows skips it too.
+
+Windows files have no Unix permission bits. `enc` on Windows records a file as `0600`
+(`0400` if it is read-only) rather than the `0666` Windows reports, so a key encrypted on
+Windows does not come out world-readable on Linux. Restoring to the original path does not
+cross platforms: a `C:\` path on Linux, or a `/home` path on Windows, is refused and you are
+asked for `-o`. angou's own config and local key live under `%USERPROFILE%\.config\angou`
+and `%USERPROFILE%\.local\share\angou`, as on Linux, where the profile directory's
+permissions protect them.
 
 ## Usage (GUI)
 
@@ -721,9 +784,10 @@ from **Set up…**.
 The GUI needs CGO, OpenGL, and a display server. The CLI needs none of those, because
 bootstrapping a bare machine depends on it staying a static binary. `angou release`
 stashes both, but a store carries the CLI for every platform and the GUI only for the ones
-it has been built on, since the GUI cannot be cross-compiled. `bootstrap.sh` installs the
-CLI first and never waits on the GUI; when the store carries one for that machine it is
-installed alongside, with a desktop entry and icon. `install.sh` installs both by default
+it has been built on, since the GUI cannot be cross-compiled. `bootstrap.sh` and
+`bootstrap.ps1` install the CLI first and never wait on the GUI; when the store carries one
+for that machine it is installed alongside, with a desktop entry and icon (a Start menu
+entry on Windows). `install.sh` installs both by default
 and skips the GUI with a note if it cannot be built. `--no-gui` skips it deliberately.
 
 Text typed into a GUI field is held in a Go string and cannot be overwritten afterwards.
@@ -829,6 +893,56 @@ suite asserts what someone thought to assert; the diff asserts everything else.
   backstop, not as a plan.
 
 ## Changelog
+
+### 0.6.1
+
+- **Writing to a store in a Dropbox folder no longer fails on Windows while Dropbox is
+  syncing.** angou saves a file by writing a new copy and renaming it over the old one.
+  Windows refuses that rename while another program holds the old file open, and Dropbox
+  holds a file for a moment after it changes, so a write could fail with "Access is
+  denied". Bootstrapping a Windows machine hit it in the self-test. angou now retries the
+  rename for up to two seconds on the errors a held file produces, and reports anything
+  else at once. Linux and macOS are unchanged; a rename there does not care who has the
+  file open.
+- **A failed bootstrap self-test no longer leaves its test file in the store.** The probe
+  it writes was left behind, unlisted and syncing to every machine, when saving the index
+  failed. If you bootstrapped a Windows machine with 0.6.0 and it reported "self-test
+  failed", run `angou rm .angou-selftest` once to remove it.
+
+### 0.6.0
+
+- **angou runs on Windows 10 and 11.** Before this the CLI did not compile there, and
+  there was no keyring and no way to install from a store. The CLI is built without CGO
+  and imports only system DLLs; the GUI builds with a MinGW-w64 `gcc` on `PATH`.
+- **The Credential Manager is the Windows keyring.** The unlock password is a generic
+  credential, `angou/unlock-<fingerprint>`, kept on this machine only rather than roamed
+  with a domain profile. Windows protects it with DPAPI under your logon; any program
+  running as you can read it, which is the same boundary as the Secret Service and the
+  login Keychain. Over an ssh logon the vault does not answer, and angou asks for the
+  recovery password instead.
+- **A store carries `bootstrap.ps1` beside `bootstrap.sh`.** `angou release` writes it,
+  signs it with the same release key and records its digest. It runs under the
+  PowerShell that ships with Windows, verifies the newest Windows CLI with `gpg` against
+  the pinned fingerprint, installs it to `%LOCALAPPDATA%\Programs\angou`, and installs a
+  GUI with a Start menu entry if the store has one. `verify-bootstrap` and the drift
+  warning cover both installers, and the GUI's button is now "Verify installers". A store
+  written by an older angou has no record for `bootstrap.ps1`, which reads as nothing
+  recorded, not as a mismatch.
+- **The agent does not run on Windows**, and `angou agent start` says so before asking
+  for a password. It checks which process is on the other end of its socket before
+  handing over key material, and Windows' Unix sockets give no way to ask. Previously it
+  would have started and then refused every connection.
+- **A file encrypted on Windows is recorded as `0600`** (`0400` if read-only). Windows
+  has no mode bits and Go reports `0666`, which would have handed the next Unix machine to
+  decrypt a private key a world-readable file.
+- **Extraction on Windows checks for a symlink before writing**, since Windows has no
+  `O_NOFOLLOW`. The check and the open are two steps, so a symlink planted between them is
+  not caught; creating one needs Developer Mode or an extra privilege.
+- **`build-all` builds Windows CLIs** for amd64 and arm64, so a store carries a binary for
+  `bootstrap.ps1` to install. `.gitattributes` keeps every checkout LF, because a CRLF
+  checkout embedded a `bootstrap.sh` that `sh` cannot run under a signature over the CRLF
+  bytes.
+- **`fynedesygn` v0.1.28 to v0.1.84.** No source change was needed.
 
 ### 0.5.1
 

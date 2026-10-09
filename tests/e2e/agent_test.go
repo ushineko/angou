@@ -4,8 +4,8 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +16,10 @@ import (
 // startAgent launches an agent in the background and waits for its socket.
 func startAgent(t *testing.T, e *env, ttl string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the agent does not run on Windows (no peer credential check); " +
+			"TestAgentRefusesToStartWhereUnsupported covers what it does instead")
+	}
 
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -24,8 +28,7 @@ func startAgent(t *testing.T, e *env, ttl string) string {
 		_, _ = w.WriteString(e.recovery + "\n")
 	}()
 
-	cmd := exec.Command(e.bin, "--passphrase-fd", "3", "agent", "start", "--ttl", ttl)
-	cmd.ExtraFiles = []*os.File{r}
+	cmd := passphraseCommand(e.bin, r, "agent", "start", "--ttl", ttl)
 	cmd.Dir = e.work
 	cmd.Env = e.childEnv()
 	require.NoError(t, cmd.Start())
@@ -187,4 +190,20 @@ func TestAgentRefusesASecondInstance(t *testing.T) {
 	r := e.run("agent", "start", "--ttl", "60s")
 	require.NotZero(t, r.code)
 	require.Contains(t, r.stderr, "already holding this store")
+}
+
+// TestAgentRefusesToStartWhereUnsupported covers Windows, where the agent cannot
+// identify its peers: start must say so before asking for a passphrase, rather
+// than start an agent that serves nothing.
+func TestAgentRefusesToStartWhereUnsupported(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the agent is supported on this platform")
+	}
+	e := newEnv(t)
+	e.initStore()
+
+	r := e.runNoPassphrase("agent", "start", "--ttl", "60s")
+	require.NotZero(t, r.code)
+	require.Contains(t, r.stderr, "not available on this platform")
+	require.NotContains(t, r.stderr, "passphrase source", "it must refuse before asking for a passphrase")
 }

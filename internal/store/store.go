@@ -17,6 +17,7 @@ import (
 
 	"github.com/ushineko/angou/internal/container"
 	"github.com/ushineko/angou/internal/envelope"
+	"github.com/ushineko/angou/internal/fsx"
 	"github.com/ushineko/angou/internal/keybundle"
 	"github.com/ushineko/angou/internal/pgpcrypto"
 )
@@ -52,6 +53,12 @@ type Meta struct {
 	// BootstrapSHA256 is the recorded digest of bootstrap.sh (R5.8). It is
 	// written by a later pass; an empty value means no record exists yet.
 	BootstrapSHA256 string `json:"bootstrap_sha256,omitempty"`
+	// BootstrapPS1SHA256 is the recorded digest of bootstrap.ps1, the Windows
+	// installer. Added after BootstrapSHA256 and optional for the same reason:
+	// a store written before it existed, or rewritten by an angou that predates
+	// it, simply has no record, which reads as "nothing to compare" rather than
+	// as a mismatch.
+	BootstrapPS1SHA256 string `json:"bootstrap_ps1_sha256,omitempty"`
 	// VersionFloor is the highest release version ever installed from this
 	// store (R5.4.2), likewise populated by a later pass.
 	VersionFloor string `json:"version_floor,omitempty"`
@@ -249,6 +256,13 @@ func (s *Store) Meta() Meta { return s.meta }
 // detectable from a machine that already holds a trusted angou.
 func (s *Store) SetBootstrapSHA256(digest string) error {
 	s.meta.BootstrapSHA256 = digest
+	return s.writeMeta()
+}
+
+// SetBootstrapPS1SHA256 records the digest of bootstrap.ps1, for the same
+// reason SetBootstrapSHA256 records bootstrap.sh's.
+func (s *Store) SetBootstrapPS1SHA256(digest string) error {
+	s.meta.BootstrapPS1SHA256 = digest
 	return s.writeMeta()
 }
 
@@ -540,7 +554,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := fsx.Rename(tmp, path); err != nil {
 		return fmt.Errorf("commit %s: %w", path, err)
 	}
 	return nil

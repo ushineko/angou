@@ -7,6 +7,18 @@ set -euo pipefail
 
 OS="$(uname -s)"
 
+# Windows has no ~/.local/bin, desktop entries or file(1) magic for this script
+# to install, and Git Bash would take the Linux path and fail half-way. Say what
+# does work instead (spec 004).
+case "$OS" in
+    MINGW*|MSYS*|CYGWIN*)
+        echo "install.sh does not install on Windows." >&2
+        echo "Build with 'make build-static build-gui' and put angou.exe on PATH, or" >&2
+        echo "install from a store with:" >&2
+        echo "    powershell -NoProfile -ExecutionPolicy Bypass -File <store>\bootstrap.ps1" >&2
+        exit 1 ;;
+esac
+
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
 MIME_DIR="${HOME}/.local/share/mime/packages"

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -677,23 +678,35 @@ func (u *ui) buildRelease() fyne.CanvasObject {
 					return nil
 				})
 			}),
-			widget.NewButton("Verify bootstrap.sh", func() {
-				u.withSession("Verify bootstrap", func(s *core.Session) error {
-					c, err := s.VerifyBootstrap()
+			widget.NewButton("Verify installers", func() {
+				u.withSession("Verify installers", func(s *core.Session) error {
+					checks, err := s.VerifyBootstraps()
 					if err != nil {
 						return err
 					}
+					var matched, unrecorded, drifted []string
+					for _, c := range checks {
+						switch {
+						case c.Recorded == "":
+							unrecorded = append(unrecorded, c.Name)
+						case c.Matches:
+							matched = append(matched, c.Name)
+						default:
+							drifted = append(drifted, c.Name)
+						}
+					}
 					switch {
-					case c.Recorded == "":
-						u.ok("No digest is recorded for bootstrap.sh, so there is nothing to compare against.")
-					case c.Matches:
-						u.ok("bootstrap.sh matches the digest recorded in this store. " +
-							"That is drift detection after the fact, not a guarantee about any run.")
-					default:
+					case len(drifted) > 0:
 						fyne.Do(func() {
-							u.sh.Flash("bootstrap.sh does NOT match the digest recorded in this store. "+
-								"Read it before any machine runs it.", fd.StatusBad)
+							u.sh.Flash(strings.Join(drifted, " and ")+" does NOT match the digest recorded "+
+								"in this store. Read it before any machine runs it.", fd.StatusBad)
 						})
+					case len(unrecorded) > 0:
+						u.ok("No digest is recorded for " + strings.Join(unrecorded, " or ") +
+							", so there is nothing to compare against.")
+					default:
+						u.ok(strings.Join(matched, " and ") + " match the digests recorded in this store. " +
+							"That is drift detection after the fact, not a guarantee about any run.")
 					}
 					return nil
 				})

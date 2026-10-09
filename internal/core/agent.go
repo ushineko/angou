@@ -76,6 +76,11 @@ func StopAgent(dir string) (bool, error) {
 // AgentSocket is where the agent for a store listens.
 func AgentSocket(dir string) (string, error) { return agent.SocketPath(dir) }
 
+// AgentSupported reports why the agent cannot run on this platform, or nil.
+// Front ends check it before asking for a passphrase, so nobody types one for
+// an agent that was never going to start.
+func AgentSupported() error { return agent.Supported() }
+
 // StartAgent unlocks the store and holds the key behind a socket until ttl runs
 // out. It blocks until the agent stops.
 //
@@ -86,6 +91,9 @@ func AgentSocket(dir string) (string, error) { return agent.SocketPath(dir) }
 // this tool cannot defend against it, and the short lifetime is the real
 // mitigation rather than any of the machinery.
 func StartAgent(s *Session, socket string, ttl time.Duration, ev Events) error {
+	if err := AgentSupported(); err != nil {
+		return err
+	}
 	identity, err := s.ExportLocalIdentity()
 	if err != nil {
 		return err

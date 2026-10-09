@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -22,7 +23,11 @@ func TestSuiteRunsAgainstABuiltBinary(t *testing.T) {
 	info, err := os.Stat(bin)
 	require.NoError(t, err, "the binary under test must exist")
 	require.False(t, info.IsDir())
-	require.NotZero(t, info.Mode()&0o111, "the binary under test must be executable")
+	if runtime.GOOS == "windows" {
+		require.Equal(t, ".exe", filepath.Ext(bin), "a Windows binary must carry .exe to be runnable")
+	} else {
+		require.NotZero(t, info.Mode()&0o111, "the binary under test must be executable")
+	}
 
 	e := newEnv(t)
 	require.Contains(t, e.mustRun("--version").stdout, "angou")
@@ -43,7 +48,7 @@ func TestHomeGuardIsFatal(t *testing.T) {
 	fake := &guardRecorder{}
 	assertHomeIsDisposableFor(fake, filepath.Join(realHome, ".cache", "angou-e2e-should-never-exist"))
 	require.True(t, fake.failed, "the guard must reject a HOME inside the real home directory")
-	require.Contains(t, fake.message, realHome)
+	require.Contains(t, fake.message, fmt.Sprintf("%q", realHome))
 	require.Contains(t, strings.ToLower(fake.message), "refusing to run")
 
 	// And that it accepts a disposable one.

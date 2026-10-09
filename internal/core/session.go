@@ -272,21 +272,20 @@ func OpenQuietly(dir string, secrets Secrets, ev Events) (*store.Store, error) {
 	return s, nil
 }
 
-// warnIfBootstrapDrifted compares the installer beside the store against the
+// warnIfBootstrapDrifted compares each installer beside the store against the
 // digest recorded inside it. This is drift detection after the fact, never a
-// guarantee about the first run.
+// guarantee about the first run. An installer with no recorded digest is not
+// reported: there is nothing to compare it against.
 func warnIfBootstrapDrifted(s *store.Store, ev Events) {
-	recorded := s.Meta().BootstrapSHA256
-	if recorded == "" {
-		return
-	}
-	raw, err := os.ReadFile(filepath.Join(s.Root(), BootstrapScriptName))
+	checks, err := checkInstallers(s)
 	if err != nil {
 		return
 	}
-	if digest(raw) != recorded {
-		ev.noticef("angou: WARNING — %s does not match the digest recorded in this store.\n"+
-			"angou: Read it before any machine runs it; see `angou verify-bootstrap`.", BootstrapScriptName)
+	for _, c := range checks {
+		if c.Recorded != "" && !c.Matches {
+			ev.noticef("angou: WARNING — %s does not match the digest recorded in this store.\n"+
+				"angou: Read it before any machine runs it; see `angou verify-bootstrap`.", c.Name)
+		}
 	}
 }
 
@@ -307,9 +306,9 @@ func CheckVersionFloor(floor, root, version string) error {
 	// and "install the current version" on its own sends someone looking for a
 	// download page.
 	remedy := "Install the current version and try again"
-	if installer := filepath.Join(root, BootstrapScriptName); fileExists(installer) {
+	if name, command := HostInstaller(root); fileExists(filepath.Join(root, name)) {
 		remedy = "This store carries the current version and an installer for it:\n" +
-			"    sh " + installer + "\n" +
+			"    " + command + "\n" +
 			"That installs " + floor + " here, after which this command works."
 	}
 	return fmt.Errorf("this angou is version %s, but %s has had %s installed from it.\n"+
